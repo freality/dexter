@@ -1,0 +1,64 @@
+# ==============================================================================
+# Dex Specific
+# ==============================================================================
+# Ignore the local state, downloaded plugins, and generated types
+.dex/
+
+# Ignore local environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# ==============================================================================
+# Go (Core CLI & Adapters)
+# ==============================================================================
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Dex compiled binaries
+/bin/
+/dex
+/dex-adapter-*
+
+# Test binaries and coverage files
+*.test
+*.out
+coverage.txt
+
+# Vendor directory (if used)
+vendor/
+
+# ==============================================================================
+# Node.js & TypeScript (SDK Package)
+# ==============================================================================
+# Dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# Build outputs
+/packages/sdk/dist/
+/packages/sdk/build/
+*.tsbuildinfo
+
+# ==============================================================================
+# OS & Editor
+# ==============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
