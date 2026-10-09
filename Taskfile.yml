@@ -1,0 +1,32 @@
+version: '3'
+
+tasks:
+  build:ts:
+    desc: Build the TypeScript SDK
+    cmds:
+      - pnpm install
+      - pnpm build:ts
+    sources:
+      - packages/**/*.ts
+    generates:
+      - packages/**/dist/*
+
+  build:go:
+    desc: Build the Go CLI and Adapters
+    cmds:
+      - go build -o bin/dex ./cmd/dex
+      - go build -o bin/dex-adapter-docker ./cmd/dex-adapter-docker
+    sources:
+      - cmd/**/*.go
+      - pkg/**/*.go
+
+  build:
+    desc: Build the entire Dexter system
+    deps: [build:ts, build:go] # Runs concurrently!
+
+  clean:
+    desc: Remove all built artifacts
+    cmds:
+      - rm -rf bin/
+      - rm -rf packages/**/dist
+      - rm -rf packages/**/node_modules
