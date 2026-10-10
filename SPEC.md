@@ -97,6 +97,11 @@ The JS sandbox MUST output this exact shape to the Go Engine. Plaintext secrets 
 }
 ```
 
+- Resource keys are the user-supplied names (`/^[a-z0-9][a-z0-9._-]*$/`, unique across all types); `depends_on` entries are those keys.
+- `depends_on` is always present (`[]` when empty), deduplicated and sorted. The SDK rejects unknown targets and self-dependencies; multi-node cycles are the engine's job.
+- Serialization is key-sorted at every level (byte-stable for state hashing).
+- Host contract: before evaluating the bundle, the engine sets `globalThis.__dex_env` to a plain object of string env vars; after evaluation it calls `globalThis.__dex_synth()`, which returns the IR as a JSON string. SDK failures throw `DexError` with a stable `code` field.
+
 ### 5.2 The gRPC Adapter Interface (`proto/adapter.proto`)
 All plugins must implement this service. Operations should be idempotent.
 

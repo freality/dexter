@@ -6,9 +6,9 @@ This document outlines the phased development plan for `dex`. It serves as a che
 **Goal:** Prove the synthesis engine and state reconciliation work. You should be able to write a single `dex.config.ts` file and use the CLI to deploy a Docker container locally.
 
 *   **TypeScript SDK (`@dex/iac`)**
-    *   [ ] Scaffolding: Create npm package structure.
-    *   [ ] API Design: Implement `defineDexConfig`, `service()`, and `env()` helpers.
-    *   [ ] Synthesis: Write the `synth()` function to output the JSON Intermediate Representation (IR).
+    *   [x] Scaffolding: Create npm package structure.
+    *   [x] API Design: Implement `defineDexConfig`, `service()`, and `env()` helpers.
+    *   [x] Synthesis: Write the `synth()` function to output the JSON Intermediate Representation (IR).
 *   **The Go Core Engine**
     *   [ ] CLI Setup: Implement basic Cobra commands (`init`, `plan`, `apply`).
     *   [ ] Transpilation: Integrate `esbuild` to transpile TS in memory.

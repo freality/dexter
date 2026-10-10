@@ -44,6 +44,7 @@ pnpm-debug.log
 # Build outputs
 /packages/sdk/dist/
 /packages/sdk/build/
+/packages/sdk/coverage/
 *.tsbuildinfo
 
 # ==============================================================================
