@@ -6,7 +6,7 @@ Use this specification to guide code generation, system design, and component bo
 
 ## 1. Technology Stack
 *   **Core CLI & Engine:** Go (1.21+)
-*   **SDK & Userland Code:** TypeScript (5.x)
+*   **SDK & Userland Code:** TypeScript (7.x)
 *   **Embedded Transpiler:** `github.com/evanw/esbuild/pkg/api`
 *   **Embedded JS Runtime:** `github.com/dop251/goja`
 *   **Plugin System:** `github.com/hashicorp/go-plugin`
