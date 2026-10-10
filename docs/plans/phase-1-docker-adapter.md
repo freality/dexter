@@ -47,22 +47,22 @@ Confirmed across three grilling rounds (Q1–Q16). Each cites its grounding wher
    - Port strings map onto the client's port binding types.
    - `func (s spec) sameExceptRestart(other spec) bool` for the D5 fast-path check.
 
-   Check: table tests for valid input, missing image, unknown key, non-string env value, malformed port, restart default, and `sameExceptRestart` true/false cases.
+   Check: no direct tests of `parseSpec`/`sameExceptRestart` (unexported internals). Their cases — missing image, unknown key, non-string env value, malformed port, restart default, restart-only vs other change — are tested through the `Adapter` seam in Step 4.
 
 4. **Lifecycle** in `adapters/docker/docker.go`:
-   - `type dockerAPI interface` holds only the client methods used: image inspect/pull, container create/start/stop/remove/inspect/update. Tests fake it.
-   - `type Adapter struct{ api dockerAPI }` with `func New() (*Adapter, error)` (FromEnv + negotiation).
+   - `type API interface` (exported) holds only the client methods used: image inspect/pull, container create/start/stop/remove/inspect/update. It is the Docker system boundary, so tests fake it here and in `cmd/dex` (Step 5).
+   - `type Adapter struct{ api API }` with `func New() (*Adapter, error)` (FromEnv + negotiation) and `func NewWithAPI(api API) *Adapter` for injecting a fake.
    - `Create(ctx, name, typ string, props map[string]any) (map[string]any, error)`: type check (D1), parse, pull if missing (D8, drain the pull stream), orphan handling (D11), create with label (D6), start, **crash check** (D12/D16: sleep 500ms, inspect once, fail with exit code if not running, leave container), return `{"id"}` (D13).
    - `Update(ctx, name string, desired, cur map[string]any) (map[string]any, error)`: parse both, `sameExceptRestart` → `ContainerUpdate` with the new `RestartPolicy` only, then `ContainerInspect` for `{"id"}`; not-found from `ContainerUpdate` → delegate to `Create`; else stop+remove then delegate to `Create` (D5).
    - `Delete(ctx, name string) error` = stop+remove, not-found is OK (D9, D14).
 
    Every error wrapped with context (SPEC §6).
-   Check: fake-client tests covering every branch, including the restart-only fast path and the crash-check failure path. `go test -cover ./adapters/docker` must show 100%.
+   Check (seam 1: `Adapter` methods over a fake `API`): every branch, including D7 property errors, D5 restart-only fast path and its not-found fallback, D11 orphan vs foreign container, D12/D16 crash-check failure, D9 delete not-found. `go test -cover ./adapters/docker` must show 100%.
 
 5. **Wire it in.** In `cmd/dex/internal/cli`, a small `dockerAdapter` struct adapts `ir.Resource`/`state.Resource` to the plain-type calls, reached through the workspace (`go.work` resolves `adapters/docker` for the `cmd/dex` module without a `replace` directive). `newProductionEngine` builds it via `docker.New()` and does `Registry.Register("docker", …)`, returning the error it already allows for.
-   Check: unit test for the wrapper's forwarding plus the `New` error path. `task test:go` passes the gate.
+   Check (seam 2: CLI `apply`): no forwarding-only wrapper test. A `cmd/dex/internal/cli` test runs `apply --yes` through a real engine with `docker.NewWithAPI(fake)` registered, and asserts on output and saved state (`Outputs.id`) for create, update and delete. This covers the wrapper for the gate. The `docker.New()` error path is covered by its own test. `task test:go` passes the gate.
 
-6. **Integration test (D15).** `adapters/docker/docker_integration_test.go` (`//go:build docker`) runs Create → restart-only Update (confirm container id unchanged) → full-replace Update (port change, confirm id changes) → Delete against the real daemon with `traefik/whoami`, using a unique resource name, and cleans up in `t.Cleanup`.
+6. **Integration test (D15, seam 3).** `adapters/docker/docker_integration_test.go` (`//go:build docker`) runs Create → restart-only Update (confirm container id unchanged) → full-replace Update (port change, confirm id changes) → Delete against the real daemon with `traefik/whoami`, using a unique resource name, and cleans up in `t.Cleanup`. Covers what the fakes can't: real Docker error shapes (not-found) and real id behaviour.
    Check: `go test -tags docker ./adapters/docker/...`.
 
 7. **End-to-end smoke** in a temporary directory with `bin/dex` (built by `task build`):
@@ -86,7 +86,7 @@ Confirmed across three grilling rounds (Q1–Q16). Each cites its grounding wher
 
 ## Risks
 
-- `moby/moby/client` is pre-1.0, so its API may churn — including `ContainerUpdate`, used for the D5 fast path. Pin the version in `go.mod`; the `dockerAPI` interface confines the blast radius to one file.
+- `moby/moby/client` is pre-1.0, so its API may churn — including `ContainerUpdate`, used for the D5 fast path. Pin the version in `go.mod`; the `docker.API` interface confines the blast radius to that interface, its implementation, and the two test fakes (`adapters/docker`, `cmd/dex/internal/cli`).
 - On macOS, `/var/run/docker.sock` exists only if Docker Desktop's default socket option is on. Otherwise `DOCKER_HOST=unix://$HOME/.docker/run/docker.sock` is required. The README must say so.
 - If the host port is already taken, start fails after create, leaving a created-but-stopped container. D11 cleans it up on the next apply. The error must surface Docker's message.
 - With D5's full-replace path, an update means downtime: a window between remove and start, and a failed create after the remove leaves state recording the old container. Accepted for the MVP; the next apply re-runs `Update`, which tolerates the missing container (remove treats not-found as OK).
