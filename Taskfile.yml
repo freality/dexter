@@ -6,19 +6,25 @@ tasks:
     cmds:
       - pnpm install
       - pnpm build:ts
+      - go run ./pkg/jsenv/sdk/gen
     sources:
       - packages/**/*.ts
     generates:
       - packages/**/dist/*
 
   build:go:
-    desc: Build the Go CLI and Adapters
+    desc: Build the Go CLI
     cmds:
       - go build -o bin/dex ./cmd/dex
-      - go build -o bin/dex-adapter-docker ./cmd/dex-adapter-docker
     sources:
       - cmd/**/*.go
       - pkg/**/*.go
+
+  test:go:
+    desc: Run Go tests with the 100% coverage gate
+    cmds:
+      - go test ./pkg/... ./cmd/dex/... -covermode=count -coverprofile=coverage.out
+      - ./scripts/check-coverage.sh coverage.out
 
   build:
     desc: Build the entire Dexter system

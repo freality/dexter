@@ -27,6 +27,7 @@
 # Test binaries and coverage files
 *.test
 *.out
+coverage.out*
 coverage.txt
 
 # Vendor directory (if used)
@@ -63,3 +64,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# task runner local cache
+.task/

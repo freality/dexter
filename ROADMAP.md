@@ -10,12 +10,12 @@ This document outlines the phased development plan for `dex`. It serves as a che
     *   [x] API Design: Implement `defineDexConfig`, `service()`, and `env()` helpers.
     *   [x] Synthesis: Write the `synth()` function to output the JSON Intermediate Representation (IR).
 *   **The Go Core Engine**
-    *   [ ] CLI Setup: Implement basic Cobra commands (`init`, `plan`, `apply`).
-    *   [ ] Transpilation: Integrate `esbuild` to transpile TS in memory.
-    *   [ ] Evaluation: Integrate `goja` to evaluate transpiled JS and capture the JSON IR.
-    *   [ ] DAG Engine: Implement topological sorting to order resources based on dependencies.
-    *   [ ] State Management: Implement local read/write to `.dex/state.json` with basic file locking.
-    *   [ ] Diff Engine: Compare JSON IR against local state to output Adds/Changes/Destroys.
+    *   [x] CLI Setup: Implement basic Cobra commands (`init`, `plan`, `apply`).
+    *   [x] Transpilation: Integrate `esbuild` to transpile TS in memory.
+    *   [x] Evaluation: Integrate `goja` to evaluate transpiled JS and capture the JSON IR.
+    *   [x] DAG Engine: Implement topological sorting to order resources based on dependencies.
+    *   [x] State Management: Implement local read/write to `.dex/state.json` with basic file locking.
+    *   [x] Diff Engine: Compare JSON IR against local state to output Adds/Changes/Destroys.
 *   **First-Party Adapters**
     *   [ ] Hardcoded Docker Adapter: Build a direct Docker API integration in Go to prove the CRUD lifecycle without gRPC overhead.
 
