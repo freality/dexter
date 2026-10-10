@@ -45,7 +45,7 @@ my-laboratory/
 
 * TypeScript SDK stubs (`defineDexConfig`, `service`).
 * Embedded `esbuild` + `goja` synthesis inside a Cobra-based Go CLI.
-* DAG resolution, local state management (`.dex-state.json`), and drift detection.
+* DAG resolution, local state management (`.dex/state.json`), and drift detection.
 * Hardcoded Docker adapter in the Go core to prove the CRUD lifecycle.
 
 ### Phase 2: Extensibility & Organization (V1)

@@ -16,7 +16,7 @@ Dexter (`dex`): homelab IaC + control plane. Users write TypeScript; a single Go
 
 - **SDK** (`packages/`): builder functions (`service`, `volume`, `network`, …) that emit the IR. It runs inside `goja` after `esbuild` bundles it, so it is pure ECMAScript: no Node built-ins, no Node-dependent packages.
 - **Engine** (`cmd/dex`, `pkg/`): parses IR, builds the DAG, diffs against state, drives adapters. It is a dumb orchestrator; target-specific logic belongs in an adapter.
-- **Adapters** (`cmd/dex-adapter-<target>`): standalone binaries that speak only the gRPC contract. Third parties build them from the public plugin package alone, so adapters import `pkg/plugin` and never `pkg/engine`.
+- **Adapters** (`adapters/<target>/cmd/dex-adapter-<target>`): standalone binaries that speak only the gRPC contract. Third parties build them from the public plugin package alone, so adapters import `pkg/plugin` and never `pkg/engine`.
 - **Phase 1 exception:** the Docker adapter (`adapters/docker`) runs in-process, called through a small `engine.Adapter` wrapper in `cmd/dex/internal/cli`. It already imports nothing from this repo, so Phase 2 can wrap it in a gRPC binary unchanged.
 
 The IR and `proto/adapter.proto` are the two contracts. Changing either is one change across every side: SDK emitter, engine parser, adapters, and the SPEC section.
@@ -36,6 +36,8 @@ The Go and Node ecosystems stay separate, split by directory:
 ## License
 
 MIT. New dependencies must have an MIT-compatible license.
+
+Sign-off: `hashicorp/go-plugin` (MPL-2.0) is accepted for the gRPC adapter architecture despite not being permissive, see `docs/adr/0001-accept-go-plugin-mpl-license.md`. Its transitive dependencies (`grpc-go`, `protobuf-go`, `go-hclog`) are MIT/Apache-2.0/BSD-3 and need no sign-off.
 
 ## Agent skills
 

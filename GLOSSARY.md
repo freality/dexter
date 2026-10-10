@@ -23,3 +23,11 @@ The Resource type produced by `service()`; what the Docker Adapter materializes 
 **Tainted**:
 A Resource whose last create or update failed, so its saved state may not match the target; the next apply replaces it.
 _Avoid_: dirty, failed
+
+**Secret**:
+A property value declared with `secret()` that is resolved from `.env` at apply time and handed to the Adapter in plaintext, but never written to the IR or `state.json` as plaintext — only a keyed hash travels with it, for diffing.
+_Avoid_: secret ref, credential
+
+**Command**:
+A day-two operation registered with `defineCommand()` and invoked with `dex run <name>`; runs outside the resource DAG, with host privileges, and reaches resource state only through its `ctx` (hashed properties by default; `ctx.secret()` for a deliberate plaintext read).
+_Avoid_: task, script
