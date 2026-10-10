@@ -3,7 +3,6 @@ package jsenv
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -45,24 +44,15 @@ func TestSynthEvaluateError(t *testing.T) {
 	}
 }
 
-func TestSynthParseError(t *testing.T) {
-	s := NewSynthesizer(&fakeBundler{script: "ok"}, &fakeEvaluator{data: []byte("not json")})
-
-	_, err := s.Synth(context.Background(), "entry.ts", nil)
-	if err == nil || !strings.Contains(err.Error(), "synth: parse IR:") {
-		t.Fatalf("Synth() error = %v, want wrapped parse error", err)
-	}
-}
-
 func TestSynthSuccess(t *testing.T) {
 	data := []byte(`{"project":"p","resources":{}}`)
 	s := NewSynthesizer(&fakeBundler{script: "ok"}, &fakeEvaluator{data: data})
 
-	doc, err := s.Synth(context.Background(), "entry.ts", map[string]string{"X": "1"})
+	got, err := s.Synth(context.Background(), "entry.ts", map[string]string{"X": "1"})
 	if err != nil {
 		t.Fatalf("Synth() error = %v", err)
 	}
-	if doc.Project != "p" {
-		t.Fatalf("Synth() = %+v", doc)
+	if string(got) != string(data) {
+		t.Fatalf("Synth() = %s, want %s", got, data)
 	}
 }

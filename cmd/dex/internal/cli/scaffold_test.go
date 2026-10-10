@@ -20,7 +20,7 @@ func TestRunInitHappyPath(t *testing.T) {
 		"created dex.config.ts",
 		"created .env",
 		"created dex/services/.gitkeep",
-		"created .gitignore",
+		"add .dex/ to your .gitignore",
 	}
 	gotLines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
 	if len(gotLines) != len(wantLines) {
@@ -43,9 +43,8 @@ func TestRunInitHappyPath(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "dex", "services", ".gitkeep")); err != nil {
 		t.Fatalf("gitkeep missing: %v", err)
 	}
-	gitignore, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	if err != nil || string(gitignore) != ".dex/\n" {
-		t.Fatalf(".gitignore = %q, err = %v", gitignore, err)
+	if _, err := os.Stat(filepath.Join(dir, ".gitignore")); !os.IsNotExist(err) {
+		t.Fatalf("runInit() wrote .gitignore, want it untouched (not a dex init exception per AGENTS.md)")
 	}
 }
 
@@ -126,98 +125,5 @@ func TestRunInitGitkeepWriteFailure(t *testing.T) {
 	err := runInit(&bytes.Buffer{}, dir)
 	if err == nil || !strings.Contains(err.Error(), "write") || !strings.Contains(err.Error(), ".gitkeep") {
 		t.Fatalf("runInit() error = %v, want wrapped write error", err)
-	}
-}
-
-func TestRunInitGitignoreFailure(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores file permissions; skipping")
-	}
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".gitignore")
-	if err := os.WriteFile(path, []byte("foo\n"), 0o444); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(path, 0o644) })
-
-	err := runInit(&bytes.Buffer{}, dir)
-	if err == nil || !strings.Contains(err.Error(), "write") || !strings.Contains(err.Error(), ".gitignore") {
-		t.Fatalf("runInit() error = %v, want wrapped gitignore write error", err)
-	}
-}
-
-func TestAppendGitignoreCreatesMissing(t *testing.T) {
-	dir := t.TempDir()
-	if err := appendGitignore(dir); err != nil {
-		t.Fatalf("appendGitignore() error = %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	if err != nil || string(data) != ".dex/\n" {
-		t.Fatalf(".gitignore = %q, err = %v", data, err)
-	}
-}
-
-func TestAppendGitignoreAddsTrailingNewline(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("foo"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := appendGitignore(dir); err != nil {
-		t.Fatalf("appendGitignore() error = %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	if err != nil || string(data) != "foo\n.dex/\n" {
-		t.Fatalf(".gitignore = %q, err = %v", data, err)
-	}
-}
-
-func TestAppendGitignoreNoDuplicate(t *testing.T) {
-	dir := t.TempDir()
-	if err := appendGitignore(dir); err != nil {
-		t.Fatal(err)
-	}
-	if err := appendGitignore(dir); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(string(data), ".dex/") != 1 {
-		t.Fatalf(".gitignore = %q, want exactly one .dex/ line", data)
-	}
-}
-
-func TestAppendGitignoreReadError(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root can read anything; skipping permission test")
-	}
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".gitignore")
-	if err := os.WriteFile(path, []byte("foo\n"), 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(path, 0o644) })
-
-	err := appendGitignore(dir)
-	if err == nil || !strings.Contains(err.Error(), "read") {
-		t.Fatalf("appendGitignore() error = %v, want wrapped read error", err)
-	}
-}
-
-func TestAppendGitignoreWriteError(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores file permissions; skipping")
-	}
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".gitignore")
-	if err := os.WriteFile(path, []byte("foo\n"), 0o444); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(path, 0o644) })
-
-	err := appendGitignore(dir)
-	if err == nil || !strings.Contains(err.Error(), "write") {
-		t.Fatalf("appendGitignore() error = %v, want wrapped write error", err)
 	}
 }

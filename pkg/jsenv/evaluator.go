@@ -74,8 +74,9 @@ func (g *GojaEvaluator) Evaluate(ctx context.Context, script string, env map[str
 }
 
 // jsError unwraps a thrown DexError (SPEC §5.1) into "[CODE] message" so the
-// SDK's stable error codes surface in CLI output; any other error passes
-// through unchanged.
+// SDK's stable error codes surface in CLI output, wrapping the original
+// *goja.Exception with %w so its JS stack stays reachable via errors.Unwrap;
+// any other error passes through unchanged.
 func jsError(err error) error {
 	var ex *goja.Exception
 	if !errors.As(err, &ex) {
@@ -94,5 +95,5 @@ func jsError(err error) error {
 	if msg := obj.Get("message"); msg != nil {
 		message = msg.String()
 	}
-	return fmt.Errorf("[%s] %s", code.String(), message)
+	return fmt.Errorf("[%s] %s: %w", code.String(), message, err)
 }

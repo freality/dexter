@@ -7,7 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"sort"
+
+	"github.com/freality/dexter/pkg/engine/internal/maputil"
 )
 
 // NamePattern mirrors RESOURCE_NAME_PATTERN in packages/sdk/src/resource.ts.
@@ -30,12 +31,7 @@ type Document struct {
 // Names returns resource names in sorted order; map iteration is never used
 // for anything observable.
 func (d *Document) Names() []string {
-	names := make([]string, 0, len(d.Resources))
-	for name := range d.Resources {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return maputil.SortedKeys(d.Resources)
 }
 
 // ValidationError reports the first structural problem found in a Document.

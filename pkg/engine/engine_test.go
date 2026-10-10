@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/freality/dexter/pkg/engine/diff"
 	"github.com/freality/dexter/pkg/engine/ir"
 	"github.com/freality/dexter/pkg/engine/state"
 	"github.com/freality/dexter/pkg/jsenv"
@@ -153,6 +154,18 @@ func TestEnginePlanStoreLoadError(t *testing.T) {
 	}
 }
 
+// TestEnginePlanParseError covers Plan's ir.Parse call: moved here from
+// jsenv, which now returns raw bytes and leaves IR parsing to the engine.
+func TestEnginePlanParseError(t *testing.T) {
+	synth := jsenv.NewSynthesizer(&fakeBundler{script: "ok"}, &fakeEvaluator{data: []byte("not json")})
+	e := New(Options{Synth: synth, Store: &fakeStore{st: state.New()}})
+
+	_, err := e.Plan(context.Background(), "entry.ts")
+	if err == nil || !strings.Contains(err.Error(), "parse IR:") {
+		t.Fatalf("Plan() error = %v, want wrapped parse error", err)
+	}
+}
+
 // --- Apply -----------------------------------------------------------------
 
 func TestEngineApplyFullLifecycle(t *testing.T) {
@@ -181,7 +194,11 @@ func TestEngineApplyFullLifecycle(t *testing.T) {
 		Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: registry, Out: &out,
 	})
 
-	plan, err := e.Apply(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), "entry.ts")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	plan, err = e.Apply(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
@@ -232,7 +249,11 @@ func TestEngineApplyEmptyPlanDoesNotSave(t *testing.T) {
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry()})
 
-	plan, err := e.Apply(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), "entry.ts")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	plan, err = e.Apply(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
@@ -252,7 +273,11 @@ func TestEngineApplyLockAcquireFailure(t *testing.T) {
 	locker := &fakeLocker{acquireErr: boom}
 	e := New(Options{Synth: fakeSynth(t, &ir.Document{Project: "p"}), Store: &fakeStore{st: state.New()}, Lock: locker, Registry: NewRegistry()})
 
-	_, err := e.Apply(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), "entry.ts")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	_, err = e.Apply(context.Background(), plan)
 	if !errors.Is(err, boom) {
 		t.Fatalf("Apply() error = %v, want %v", err, boom)
 	}
@@ -261,26 +286,39 @@ func TestEngineApplyLockAcquireFailure(t *testing.T) {
 	}
 }
 
-func TestEngineApplySynthError(t *testing.T) {
-	boom := errors.New("synth boom")
+// TestEngineApplyStaleStateRejected proves Apply executes exactly the plan
+// the caller confirmed: if state.json moved underneath it (another dex
+// process, a manual edit) between Plan and Apply, it must fail instead of
+// silently applying stale changes against resources it never diffed.
+func TestEngineApplyStaleStateRejected(t *testing.T) {
+	desired := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
+	}}
+	store := &fakeStore{st: state.New()}
 	locker := &fakeLocker{}
-	e := New(Options{Synth: failingSynth(boom), Store: &fakeStore{st: state.New()}, Lock: locker, Registry: NewRegistry()})
+	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry()})
 
-	_, err := e.Apply(context.Background(), "entry.ts")
-	if !errors.Is(err, boom) {
-		t.Fatalf("Apply() error = %v, want %v", err, boom)
+	plan, err := e.Plan(context.Background(), "entry.ts")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	store.st.Serial++ // simulate a concurrent write between Plan and Apply
+
+	_, err = e.Apply(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "state changed since plan was computed") {
+		t.Fatalf("Apply() error = %v, want stale-state rejection", err)
 	}
 	if !locker.released {
-		t.Fatal("Release() not called after synth failure")
+		t.Fatal("Release() not called after stale-state rejection")
 	}
 }
 
 func TestEngineApplyStoreLoadError(t *testing.T) {
 	boom := errors.New("load boom")
 	locker := &fakeLocker{}
-	e := New(Options{Synth: fakeSynth(t, &ir.Document{Project: "p"}), Store: &fakeStore{loadErr: boom}, Lock: locker, Registry: NewRegistry()})
+	e := New(Options{Store: &fakeStore{loadErr: boom}, Lock: locker, Registry: NewRegistry()})
 
-	_, err := e.Apply(context.Background(), "entry.ts")
+	_, err := e.Apply(context.Background(), &diff.Plan{Project: "p"})
 	if !errors.Is(err, boom) {
 		t.Fatalf("Apply() error = %v, want %v", err, boom)
 	}
@@ -302,7 +340,11 @@ func TestEngineApplyUpdateErrorAborts(t *testing.T) {
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: current}, Lock: locker, Registry: registry})
 
-	_, err := e.Apply(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), "entry.ts")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	_, err = e.Apply(context.Background(), plan)
 	if err == nil || !errors.Is(err, boom) || !strings.HasPrefix(err.Error(), "update a: ") {
 		t.Fatalf("Apply() error = %v, want wrapped update error", err)
 	}
@@ -322,33 +364,16 @@ func TestEngineApplyDeleteErrorAborts(t *testing.T) {
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: current}, Lock: locker, Registry: registry})
 
-	_, err := e.Apply(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), "entry.ts")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	_, err = e.Apply(context.Background(), plan)
 	if err == nil || !errors.Is(err, boom) || !strings.HasPrefix(err.Error(), "delete a: ") {
 		t.Fatalf("Apply() error = %v, want wrapped delete error", err)
 	}
 	if !locker.released {
 		t.Fatal("Release() not called after delete failure")
-	}
-}
-
-func TestEngineApplyDiffCycleError(t *testing.T) {
-	desired := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
-		"a": {Type: "t", Plugin: "p", Properties: map[string]any{}, DependsOn: []string{"b"}},
-		"b": {Type: "t", Plugin: "p", Properties: map[string]any{}, DependsOn: []string{"a"}},
-	}}
-	locker := &fakeLocker{}
-	store := &fakeStore{st: state.New()}
-	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry()})
-
-	_, err := e.Apply(context.Background(), "entry.ts")
-	if err == nil || !strings.Contains(err.Error(), "dependency cycle") {
-		t.Fatalf("Apply() error = %v, want cycle error", err)
-	}
-	if !locker.released {
-		t.Fatal("Release() not called after diff failure")
-	}
-	if len(store.saves) != 0 {
-		t.Fatalf("saves = %d, want 0", len(store.saves))
 	}
 }
 
@@ -359,7 +384,11 @@ func TestEngineApplyRegistryMiss(t *testing.T) {
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New()}, Lock: locker, Registry: NewRegistry()})
 
-	_, err := e.Apply(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), "entry.ts")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	_, err = e.Apply(context.Background(), plan)
 	want := `create a: no provider registered for plugin "missing"`
 	if err == nil || err.Error() != want {
 		t.Fatalf("Apply() error = %q, want %q", err, want)
@@ -396,7 +425,11 @@ func TestEngineApplyProviderErrorPersistsEarlierChange(t *testing.T) {
 		},
 	}
 
-	_, err := e.Apply(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), "entry.ts")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	_, err = e.Apply(context.Background(), plan)
 	if err == nil || !errors.Is(err, boom) {
 		t.Fatalf("Apply() error = %v, want wrapped %v", err, boom)
 	}
@@ -424,7 +457,11 @@ func TestEngineApplyStoreSaveError(t *testing.T) {
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New(), saveErr: boom}, Lock: locker, Registry: registry})
 
-	_, err := e.Apply(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), "entry.ts")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	_, err = e.Apply(context.Background(), plan)
 	if err == nil || !errors.Is(err, boom) || !strings.Contains(err.Error(), "save state:") {
 		t.Fatalf("Apply() error = %v, want wrapped save error", err)
 	}
@@ -439,7 +476,11 @@ func TestEngineApplyLockReleaseErrorJoined(t *testing.T) {
 	locker := &fakeLocker{releaseErr: releaseErr}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New()}, Lock: locker, Registry: NewRegistry()})
 
-	_, err := e.Apply(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), "entry.ts")
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	_, err = e.Apply(context.Background(), plan)
 	if !errors.Is(err, releaseErr) {
 		t.Fatalf("Apply() error = %v, want release error joined in", err)
 	}

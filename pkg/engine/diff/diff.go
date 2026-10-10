@@ -42,6 +42,11 @@ type Change struct {
 // Plan is an ordered list of changes.
 type Plan struct {
 	Changes []Change
+	// Project and BaseSerial identify the desired/current pair this Plan was
+	// computed from, so Engine.Apply can detect state that moved underneath
+	// a confirmed plan instead of silently applying it against new state.
+	Project    string
+	BaseSerial int
 }
 
 // Counts returns the number of create/update/delete changes.
@@ -86,7 +91,7 @@ func Compute(desired *ir.Document, current *state.State) (*Plan, error) {
 		return nil, err
 	}
 
-	plan := &Plan{}
+	plan := &Plan{Project: desired.Project, BaseSerial: current.Serial}
 	for _, name := range order {
 		des := desired.Resources[name]
 		cur, inCurrent := current.Resources[name]
@@ -114,12 +119,45 @@ func Compute(desired *ir.Document, current *state.State) (*Plan, error) {
 	}
 
 	names := current.Names()
-	for i := len(names) - 1; i >= 0; i-- {
-		name := names[i]
-		if _, inDesired := desired.Resources[name]; inDesired {
+	toDelete := map[string]state.Resource{}
+	for _, name := range names {
+		if _, inDesired := desired.Resources[name]; !inDesired {
+			toDelete[name] = current.Resources[name]
+		}
+	}
+
+	// Order deletes by dependency, not by name: a dependent (e.g. a
+	// container) must go before what it depends on (e.g. its network), the
+	// reverse of create order. dg mirrors only edges between two resources
+	// that are both being deleted; a dependency left in desired imposes no
+	// delete-order constraint.
+	dg := dag.New()
+	for _, name := range names {
+		if _, ok := toDelete[name]; ok {
+			dg.AddNode(name)
+		}
+	}
+	for _, name := range names {
+		res, ok := toDelete[name]
+		if !ok {
 			continue
 		}
-		cur := current.Resources[name]
+		for _, dep := range res.DependsOn {
+			if _, ok := toDelete[dep]; ok {
+				// name and dep were both just added as nodes above (both
+				// keys of toDelete), so AddEdge's unknown-node error cannot
+				// occur; nothing to wrap or guard.
+				_ = dg.AddEdge(name, dep)
+			}
+		}
+	}
+	deleteOrder, err := dg.Sort()
+	if err != nil {
+		return nil, err
+	}
+	for i := len(deleteOrder) - 1; i >= 0; i-- {
+		name := deleteOrder[i]
+		cur := toDelete[name]
 		plan.Changes = append(plan.Changes, Change{
 			Action: ActionDelete, Name: name, Type: cur.Type, Plugin: cur.Plugin, Current: &cur,
 		})

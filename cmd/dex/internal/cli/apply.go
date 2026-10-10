@@ -42,7 +42,7 @@ func newApplyCmd(dir *string, d deps) *cobra.Command {
 				}
 			}
 
-			applied, err := e.Apply(cmd.Context(), entry)
+			applied, err := e.Apply(cmd.Context(), plan)
 			if err != nil {
 				return err
 			}

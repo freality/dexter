@@ -30,7 +30,7 @@ The Go and Node ecosystems stay separate, split by directory:
 
 - TypeScript: `pnpm` only (version pinned in `package.json`), workspace `packages/*`.
 - Go: modules under `cmd/` and `pkg/`, registered in `go.work`.
-- `task` is the bridge. Use `task build` for a full build (TS and Go run concurrently); `task --list` shows the rest.
+- `task` is the bridge. Use `task build` for a full build (`build:go` depends on `build:ts`, since the Go binary embeds the built SDK bundle); `task --list` shows the rest.
 
 ## License
 

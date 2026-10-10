@@ -6,16 +6,6 @@ import { createDexScope } from "./scope.js";
 export type * from "./types.js";
 export { DexError } from "./errors.js";
 export type { DexErrorCode } from "./errors.js";
-export { HOST_ENV_GLOBAL, createHostEnvSource, envFrom } from "./env.js";
-export type { EnvSource } from "./env.js";
-export { createResourceRegistry } from "./registry.js";
-export type { ResourceCollector } from "./registry.js";
-export { sanitizeProperties } from "./properties.js";
-export { RESOURCE_NAME_PATTERN, defineResource } from "./resource.js";
-export type { ResourceBuilder } from "./resource.js";
-export { buildIR, stableStringify } from "./synth.js";
-export { createDexScope };
-export type { DexScope } from "./scope.js";
 
 export const SYNTH_GLOBAL = "__dex_synth";
 

@@ -14,11 +14,13 @@ tasks:
 
   build:go:
     desc: Build the Go CLI
+    deps: [build:ts]
     cmds:
       - go build -o bin/dex ./cmd/dex
     sources:
       - cmd/**/*.go
       - pkg/**/*.go
+      - pkg/jsenv/sdk/iac.js
 
   test:go:
     desc: Run Go tests with the 100% coverage gate
@@ -28,7 +30,7 @@ tasks:
 
   build:
     desc: Build the entire Dexter system
-    deps: [build:ts, build:go] # Runs concurrently!
+    deps: [build:go] # build:go depends on build:ts, so the embedded SDK bundle is always current.
 
   clean:
     desc: Remove all built artifacts

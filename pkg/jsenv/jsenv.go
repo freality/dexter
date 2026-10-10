@@ -4,12 +4,13 @@ package jsenv
 
 import (
 	"context"
-	"fmt"
-
-	"github.com/freality/dexter/pkg/engine/ir"
 )
 
-// Synthesizer turns a TypeScript entrypoint into a validated IR document.
+// Synthesizer turns a TypeScript entrypoint into raw IR JSON. Parsing and
+// validating that JSON is the engine's job (SPEC.md §4 Step 2.1), not this
+// TS-execution wrapper's: keeping it here would make pkg/jsenv depend on
+// pkg/engine/ir while pkg/engine depends on pkg/jsenv, a loop back into the
+// engine.
 type Synthesizer struct {
 	bundler   Bundler
 	evaluator Evaluator
@@ -20,20 +21,12 @@ func NewSynthesizer(b Bundler, e Evaluator) *Synthesizer {
 	return &Synthesizer{bundler: b, evaluator: e}
 }
 
-// Synth bundles entrypoint, evaluates it with env exposed to the SDK's
-// env() helper, and parses+validates the resulting IR.
-func (s *Synthesizer) Synth(ctx context.Context, entrypoint string, env map[string]string) (*ir.Document, error) {
+// Synth bundles entrypoint and evaluates it with env exposed to the SDK's
+// env() helper, returning the raw IR JSON bytes (SPEC.md §5.1).
+func (s *Synthesizer) Synth(ctx context.Context, entrypoint string, env map[string]string) ([]byte, error) {
 	script, err := s.bundler.Bundle(entrypoint)
 	if err != nil {
 		return nil, err
 	}
-	data, err := s.evaluator.Evaluate(ctx, script, env)
-	if err != nil {
-		return nil, err
-	}
-	doc, err := ir.Parse(data)
-	if err != nil {
-		return nil, fmt.Errorf("synth: %w", err)
-	}
-	return doc, nil
+	return s.evaluator.Evaluate(ctx, script, env)
 }

@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -177,23 +178,44 @@ func TestComputeDependencyOrdering(t *testing.T) {
 }
 
 func TestComputeDeletesInReverseOrder(t *testing.T) {
+	// "alpha" depends on "zeta": alphabetical order would delete the
+	// dependency (zeta) first, which breaks a real adapter (e.g. a
+	// container deleted after the network it still references). Deletes
+	// must go dependent-first, the reverse of create order, regardless of
+	// name.
 	plan, err := Compute(doc(nil), st(map[string]state.Resource{
-		"a": {Type: "t", Plugin: "p"},
-		"b": {Type: "t", Plugin: "p"},
-		"c": {Type: "t", Plugin: "p"},
+		"alpha": {Type: "t", Plugin: "p", DependsOn: []string{"zeta"}},
+		"zeta":  {Type: "t", Plugin: "p"},
 	}))
 	if err != nil {
 		t.Fatalf("Compute() error = %v", err)
 	}
-	if len(plan.Changes) != 3 {
+	if len(plan.Changes) != 2 {
 		t.Fatalf("Changes = %+v", plan.Changes)
 	}
-	order := []string{plan.Changes[0].Name, plan.Changes[1].Name, plan.Changes[2].Name}
-	want := []string{"c", "b", "a"}
+	order := []string{plan.Changes[0].Name, plan.Changes[1].Name}
+	want := []string{"alpha", "zeta"}
 	for i := range want {
 		if order[i] != want[i] {
 			t.Fatalf("order = %v, want %v", order, want)
 		}
+	}
+}
+
+// TestComputeDeleteCyclePassthrough exercises the delete-ordering DAG's
+// cycle path. Only reachable with a corrupted state.json: a successful
+// apply always persists an already-acyclic dependency subgraph.
+func TestComputeDeleteCyclePassthrough(t *testing.T) {
+	_, err := Compute(doc(nil), st(map[string]state.Resource{
+		"a": {Type: "t", Plugin: "p", DependsOn: []string{"b"}},
+		"b": {Type: "t", Plugin: "p", DependsOn: []string{"a"}},
+	}))
+	var ce *dag.CycleError
+	if err == nil {
+		t.Fatal("Compute() error = nil, want cycle error")
+	}
+	if !errors.As(err, &ce) {
+		t.Fatalf("Compute() error = %v (%T), want *dag.CycleError", err, err)
 	}
 }
 

@@ -230,21 +230,11 @@ var synth = defaultScope.synth;
 globalThis[SYNTH_GLOBAL] = defaultScope.synthJSON;
 export {
   DexError,
-  HOST_ENV_GLOBAL,
-  RESOURCE_NAME_PATTERN,
   SYNTH_GLOBAL,
-  buildIR,
-  createDexScope,
-  createHostEnvSource,
-  createResourceRegistry,
   defineDexConfig,
-  defineResource,
   env,
-  envFrom,
   network,
-  sanitizeProperties,
   service,
-  stableStringify,
   synth,
   volume
 };

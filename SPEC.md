@@ -6,7 +6,7 @@ Use this specification to guide code generation, system design, and component bo
 
 ## 1. Technology Stack
 *   **Core CLI & Engine:** Go (1.21+)
-*   **SDK & Userland Code:** TypeScript (7.x)
+*   **SDK & Userland Code:** TypeScript (7.x; native-compiler performance for `tsc` type-checking during SDK build and user `dex.config.ts` authoring)
 *   **Embedded Transpiler:** `github.com/evanw/esbuild/pkg/api`
 *   **Embedded JS Runtime:** `github.com/dop251/goja`
 *   **Plugin System:** `github.com/hashicorp/go-plugin`
@@ -78,6 +78,12 @@ The JS sandbox MUST output this exact shape to the Go Engine. Plaintext secrets 
 {
   "project": "my-homelab",
   "resources": {
+    "main": {
+      "type": "network",
+      "plugin": "docker",
+      "properties": {},
+      "depends_on": []
+    },
     "postgres": {
       "type": "container",
       "plugin": "docker",
@@ -91,7 +97,7 @@ The JS sandbox MUST output this exact shape to the Go Engine. Plaintext secrets 
           }
         }
       },
-      "depends_on": ["network.main"]
+      "depends_on": ["main"]
     }
   }
 }
