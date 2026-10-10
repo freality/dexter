@@ -23,15 +23,15 @@ The IR and `proto/adapter.proto` are the two contracts. Changing either is one c
 
 ## Userland artifacts
 
-Everything the engine writes into a user's project lives under `.dex/` at the project root: `state.json`, `state.json.lock`, `plugins/` (binaries fetched by `dex plugin add github.com/<user>/<adapter>` from GitHub Releases for the host OS/arch), `generated/` (`.d.ts` files). The only exceptions are the files `dex init` scaffolds for the user (`dex.config.ts`, `.env`, `dex/`).
+Everything the engine writes into a user's project lives under `.dex/` (layout: SPEC §3). The only exceptions are the files `dex init` scaffolds for the user (`dex.config.ts`, `.env`, `dex/`).
 
 ## Toolchain
 
 The Go and Node ecosystems stay separate, split by directory:
 
 - TypeScript: `pnpm` only (version pinned in `package.json`), workspace `packages/*`.
-- Go: modules under `cmd/`, `pkg/`, and `adapters/`, registered in `go.work`.
-- `task` is the bridge. Use `task build` for a full build (`build:go` depends on `build:ts`, since the Go binary embeds the built SDK bundle); `task --list` shows the rest.
+- Go: the modules listed in `go.work`.
+- `task` is the bridge. Use `task build` for a full build (`build:go` depends on `build:ts`, since the Go binary embeds the built SDK bundle); `task check` is the full gate (CI and the pre-commit hook from `task setup:hooks` run it); `task --list` shows the rest.
 
 ## License
 

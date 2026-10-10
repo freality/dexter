@@ -151,7 +151,7 @@ func (a *Adapter) launch(ctx context.Context, name string, s spec) (map[string]a
 	if err != nil {
 		return nil, fmt.Errorf("create container %q: %w", name, err)
 	}
-	if _, err := a.api.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
+	if _, err = a.api.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
 		return nil, fmt.Errorf("start container %q: %w", name, err)
 	}
 

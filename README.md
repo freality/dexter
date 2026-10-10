@@ -81,7 +81,7 @@ Any other property is an error. The container is named after the resource and la
 
 If a create or update fails (including a container that exits right after starting), the resource is marked **tainted** in `.dex/state.json` and the next `dex apply` replaces it. The failed container is left in place until then, for `docker logs`.
 
-The adapter lives in its own Go workspace module, `adapters/docker`. `task test:go` covers it with fakes; `go test -tags docker ./adapters/docker/...` runs it against a real daemon.
+The adapter lives in its own Go workspace module, `adapters/docker`. `task check` covers it with fakes; `go test -tags docker ./adapters/docker/... ./cmd/dex/...` runs the adapter and the full `dex` CLI against a real daemon.
 
 ## 📂 Project Structure
 

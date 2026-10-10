@@ -1,0 +1,3 @@
+#!/bin/sh
+# Enabled per clone with `task setup:hooks`. Bypass once with `git commit --no-verify`.
+exec task check

@@ -85,7 +85,7 @@ func (e *Engine) Plan(ctx context.Context, entrypoint string) (*diff.Plan, error
 // manual edit), Apply fails rather than silently applying stale changes
 // against resources it never diffed.
 func (e *Engine) Apply(ctx context.Context, plan *diff.Plan) (_ *diff.Plan, err error) {
-	if err := e.lock.Acquire(); err != nil {
+	if err = e.lock.Acquire(); err != nil {
 		return nil, fmt.Errorf("acquire lock: %w", err)
 	}
 	defer func() {
@@ -139,7 +139,7 @@ func (e *Engine) applyChange(ctx context.Context, st *state.State, change diff.C
 	case diff.ActionUpdate:
 		outputs, err = adapter.Update(ctx, change.Name, *change.Desired, *change.Current)
 	case diff.ActionDelete:
-		if err := adapter.Delete(ctx, change.Name, *change.Current); err != nil {
+		if err = adapter.Delete(ctx, change.Name, *change.Current); err != nil {
 			return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
 		}
 		delete(st.Resources, change.Name)

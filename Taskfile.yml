@@ -18,16 +18,52 @@ tasks:
     cmds:
       - go build -o bin/dex ./cmd/dex
     sources:
-      - cmd/**/*.go
-      - pkg/**/*.go
-      - adapters/**/*.go
+      - '**/*.go'
       - pkg/jsenv/sdk/iac.js
 
+  # Go package patterns come from go.work (`go list -m`), so a new module is
+  # covered without editing this file.
   test:go:
     desc: Run Go tests with the 100% coverage gate
     cmds:
-      - go test ./pkg/... ./cmd/dex/... ./adapters/docker/... -covermode=count -coverprofile=coverage.out
+      - go test $(go list -m | sed 's,$,/...,') -covermode=count -coverprofile=coverage.out
       - ./scripts/check-coverage.sh coverage.out
+
+  test:ts:
+    desc: Run SDK tests with the 100% coverage gate
+    cmds:
+      - pnpm test:ts
+
+  lint:go:
+    desc: gofmt, go vet, and the shadow analyzer
+    cmds:
+      - |
+        unformatted=$(gofmt -l $(git ls-files '*.go'))
+        if [ -n "$unformatted" ]; then echo "gofmt needed: $unformatted" >&2; exit 1; fi
+      - go vet $(go list -m | sed 's,$,/...,')
+      - go run golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.51.0 $(go list -m | sed 's,$,/...,')
+
+  lint:md:
+    desc: Reject control bytes and literal \uXXXX escapes in tracked Markdown
+    cmds:
+      - |
+        if git grep -nIP '[\x01-\x08\x0b\x0c\x0e-\x1f]|\\u[0-9a-fA-F]{4}' -- '*.md'; then
+          echo "Markdown above contains control bytes or literal \\uXXXX escapes" >&2
+          exit 1
+        fi
+
+  check:
+    desc: Full gate; CI and the pre-commit hook run this
+    cmds:
+      - task: lint:md
+      - task: lint:go
+      - task: test:go
+      - task: test:ts
+
+  setup:hooks:
+    desc: Run `task check` before every commit in this clone
+    cmds:
+      - git config core.hooksPath .githooks
 
   build:
     desc: Build the entire Dexter system
