@@ -35,3 +35,17 @@ The Go and Node ecosystems stay separate, split by directory:
 ## License
 
 MIT. New dependencies must have an MIT-compatible license.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `freality/dexter`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `GLOSSARY.md` + `docs/adr/`, created on demand. See `docs/agents/domain.md`.
