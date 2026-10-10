@@ -28,7 +28,11 @@ func renderPlan(w io.Writer, p *diff.Plan) {
 			}
 			fmt.Fprintf(w, "  ~ %s (%s)\n", c.Name, strings.Join(keys, ", "))
 		case diff.ActionDelete:
-			fmt.Fprintf(w, "  - %s\n", c.Name)
+			if c.Current != nil && c.Current.Tainted {
+				fmt.Fprintf(w, "  - %s (tainted: last apply failed)\n", c.Name)
+			} else {
+				fmt.Fprintf(w, "  - %s\n", c.Name)
+			}
 		}
 	}
 	fmt.Fprintln(w)

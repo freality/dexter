@@ -18,6 +18,9 @@ type Resource struct {
 	DependsOn []string `json:"depends_on,omitempty"`
 	// Outputs are adapter-materialized values (ids, IPs) carried across applies.
 	Outputs map[string]any `json:"outputs,omitempty"`
+	// Tainted marks a resource whose last create/update failed, so the target
+	// may not match Properties; the next plan replaces it.
+	Tainted bool `json:"tainted,omitempty"`
 }
 
 // State is the full persisted record for a project.

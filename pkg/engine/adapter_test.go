@@ -8,27 +8,27 @@ import (
 	"github.com/freality/dexter/pkg/engine/state"
 )
 
-type stubProvider struct{}
+type stubAdapter struct{}
 
-func (stubProvider) Create(context.Context, string, ir.Resource) (map[string]any, error) {
+func (stubAdapter) Create(context.Context, string, ir.Resource) (map[string]any, error) {
 	return nil, nil
 }
-func (stubProvider) Update(context.Context, string, ir.Resource, state.Resource) (map[string]any, error) {
+func (stubAdapter) Update(context.Context, string, ir.Resource, state.Resource) (map[string]any, error) {
 	return nil, nil
 }
-func (stubProvider) Delete(context.Context, string, state.Resource) error { return nil }
+func (stubAdapter) Delete(context.Context, string, state.Resource) error { return nil }
 
 func TestRegistryGetMiss(t *testing.T) {
 	r := NewRegistry()
 	_, err := r.Get("docker")
-	if err == nil || err.Error() != `no provider registered for plugin "docker"` {
+	if err == nil || err.Error() != `no adapter registered for plugin "docker"` {
 		t.Fatalf("Get() error = %v", err)
 	}
 }
 
 func TestRegistryGetHit(t *testing.T) {
 	r := NewRegistry()
-	p := stubProvider{}
+	p := stubAdapter{}
 	r.Register("docker", p)
 
 	got, err := r.Get("docker")

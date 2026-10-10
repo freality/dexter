@@ -146,7 +146,7 @@ func TestApplyCmdApplyError(t *testing.T) {
 	cmd.SetArgs([]string{"apply", "--dir", dir, "--yes"})
 
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "no provider registered for plugin") {
+	if err == nil || !strings.Contains(err.Error(), "no adapter registered for plugin") {
 		t.Fatalf("Execute() error = %v", err)
 	}
 }

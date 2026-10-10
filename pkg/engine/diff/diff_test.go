@@ -261,3 +261,18 @@ func TestPlanEmptyTrue(t *testing.T) {
 		t.Fatalf("Counts() = %d,%d,%d, want zeros", add, change, destroy)
 	}
 }
+
+func TestComputeReplacesTaintedResource(t *testing.T) {
+	d := doc(map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{"image": "v1"}, DependsOn: []string{}},
+	})
+	plan, err := Compute(d, st(map[string]state.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{"image": "v1"}, Tainted: true},
+	}))
+	if err != nil {
+		t.Fatalf("Compute() error = %v", err)
+	}
+	if len(plan.Changes) != 2 || plan.Changes[0].Action != ActionDelete || plan.Changes[1].Action != ActionCreate {
+		t.Fatalf("Changes = %+v, want delete+create replacing tainted a despite equal properties", plan.Changes)
+	}
+}

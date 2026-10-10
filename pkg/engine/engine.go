@@ -1,5 +1,5 @@
 // Package engine orchestrates synth, diff, and apply: the dumb coordinator
-// that drives adapters through gRPC-free Provider implementations (SPEC §2).
+// that drives Adapter implementations, in-process for now (SPEC §2).
 package engine
 
 import (
@@ -78,7 +78,8 @@ func (e *Engine) Plan(ctx context.Context, entrypoint string) (*diff.Plan, error
 }
 
 // Apply executes a Plan previously returned by Plan, persisting state after
-// each successful change so a mid-run failure leaves truthful state. It
+// every change attempt (a failed create/update saves the resource tainted)
+// so a mid-run failure leaves truthful state. It
 // never re-synthesizes or re-diffs: the plan a caller confirmed is the plan
 // that runs. If state moved since Plan computed it (another dex process, a
 // manual edit), Apply fails rather than silently applying stale changes
@@ -106,51 +107,52 @@ func (e *Engine) Apply(ctx context.Context, plan *diff.Plan) (_ *diff.Plan, err 
 	st.Project = plan.Project
 
 	for _, change := range plan.Changes {
-		if err = e.applyChange(ctx, st, change); err != nil {
-			return nil, err
+		// Save after every attempt, failed ones too: a failure may have
+		// tainted the resource, and state must say so.
+		applyErr := e.applyChange(ctx, st, change)
+		if applyErr == nil {
+			fmt.Fprintf(e.out, "%s: done\n", change.Name)
 		}
-		fmt.Fprintf(e.out, "%s: done\n", change.Name)
-		if err = e.store.Save(st); err != nil {
-			return nil, fmt.Errorf("save state: %w", err)
+		if saveErr := e.store.Save(st); saveErr != nil {
+			return nil, errors.Join(applyErr, fmt.Errorf("save state: %w", saveErr))
+		}
+		if applyErr != nil {
+			return nil, applyErr
 		}
 	}
 	return plan, nil
 }
 
-// applyChange runs one change against its provider and updates st in place.
+// applyChange runs one change against its adapter and updates st in place.
+// A failed create or update records the resource as tainted: the adapter may
+// have changed the target part-way, so the next plan replaces it.
 func (e *Engine) applyChange(ctx context.Context, st *state.State, change diff.Change) error {
-	provider, err := e.registry.Get(change.Plugin)
+	adapter, err := e.registry.Get(change.Plugin)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
 	}
 
-	// put records the result of a successful create/update; both actions
-	// persist the same shape, differing only in which provider call fed it.
-	put := func(outputs map[string]any) {
-		st.Resources[change.Name] = state.Resource{
-			Type: change.Desired.Type, Plugin: change.Desired.Plugin,
-			Properties: change.Desired.Properties, DependsOn: change.Desired.DependsOn, Outputs: outputs,
-		}
-	}
-
+	var outputs map[string]any
 	switch change.Action {
 	case diff.ActionCreate:
-		outputs, err := provider.Create(ctx, change.Name, *change.Desired)
-		if err != nil {
-			return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
-		}
-		put(outputs)
+		outputs, err = adapter.Create(ctx, change.Name, *change.Desired)
 	case diff.ActionUpdate:
-		outputs, err := provider.Update(ctx, change.Name, *change.Desired, *change.Current)
-		if err != nil {
-			return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
-		}
-		put(outputs)
+		outputs, err = adapter.Update(ctx, change.Name, *change.Desired, *change.Current)
 	case diff.ActionDelete:
-		if err := provider.Delete(ctx, change.Name, *change.Current); err != nil {
+		if err := adapter.Delete(ctx, change.Name, *change.Current); err != nil {
 			return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
 		}
 		delete(st.Resources, change.Name)
+		return nil
+	}
+
+	st.Resources[change.Name] = state.Resource{
+		Type: change.Desired.Type, Plugin: change.Desired.Plugin,
+		Properties: change.Desired.Properties, DependsOn: change.Desired.DependsOn,
+		Outputs: outputs, Tainted: err != nil,
+	}
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
 	}
 	return nil
 }

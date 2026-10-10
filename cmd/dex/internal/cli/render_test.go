@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/freality/dexter/pkg/engine/diff"
+	"github.com/freality/dexter/pkg/engine/state"
 )
 
 func TestRenderPlanEmpty(t *testing.T) {
@@ -35,5 +36,17 @@ func TestRenderPlanWithChanges(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("renderPlan() = %q, want substring %q", out, want)
 		}
+	}
+}
+
+func TestRenderPlanMarksTaintedReplacement(t *testing.T) {
+	plan := &diff.Plan{Changes: []diff.Change{
+		{Action: diff.ActionDelete, Name: "whoami", Current: &state.Resource{Tainted: true}},
+		{Action: diff.ActionCreate, Name: "whoami"},
+	}}
+	var buf bytes.Buffer
+	renderPlan(&buf, plan)
+	if !strings.Contains(buf.String(), "  - whoami (tainted: last apply failed)\n  + whoami\n") {
+		t.Fatalf("renderPlan() = %q", buf.String())
 	}
 }

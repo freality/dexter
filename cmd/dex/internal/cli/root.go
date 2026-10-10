@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/freality/dexter/adapters/docker"
 	"github.com/freality/dexter/pkg/engine"
 	"github.com/freality/dexter/pkg/engine/state"
 	"github.com/freality/dexter/pkg/jsenv"
@@ -57,15 +58,20 @@ func productionDeps() deps {
 	return deps{newEngine: newProductionEngine}
 }
 
-// newProductionEngine wires the real esbuild/goja synthesizer and on-disk
-// state store. Process env only: .env parsing is Phase 2 secrets work.
+// newProductionEngine wires the real esbuild/goja synthesizer, on-disk state
+// store, and Docker adapter. Process env only: .env parsing is Phase 2
+// secrets work.
 func newProductionEngine(dir string) (*engine.Engine, error) {
+	dock, err := docker.New()
+	if err != nil {
+		return nil, err
+	}
 	synth := jsenv.NewSynthesizer(jsenv.NewEsbuildBundler(), jsenv.NewGojaEvaluator())
 	return engine.New(engine.Options{
 		Synth:    synth,
 		Store:    state.NewFileStore(dir, time.Now),
 		Lock:     state.NewLock(dir),
-		Registry: engine.NewRegistry(),
+		Registry: registryFor(dock),
 		Env:      envMap(),
 		Out:      os.Stdout,
 	}), nil

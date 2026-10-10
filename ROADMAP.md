@@ -17,7 +17,7 @@ This document outlines the phased development plan for `dex`. It serves as a che
     *   [x] State Management: Implement local read/write to `.dex/state.json` with basic file locking.
     *   [x] Diff Engine: Compare JSON IR against local state to output Adds/Changes/Destroys.
 *   **First-Party Adapters**
-    *   [ ] Hardcoded Docker Adapter: Build a direct Docker API integration in Go to prove the CRUD lifecycle without gRPC overhead.
+    *   [x] Hardcoded Docker Adapter: Build a direct Docker API integration in Go to prove the CRUD lifecycle without gRPC overhead.
 
 ## Phase 2: Extensibility & Organization (V1)
 **Goal:** Make the tool usable for real-world, complex homelabs by supporting modular files, secrets, and third-party plugins.

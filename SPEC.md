@@ -25,7 +25,7 @@ dex-monorepo/
 │   ├── jsenv/             # esbuild and goja wrappers for TS execution
 │   └── plugin/            # gRPC protobuf definitions and go-plugin scaffolding
 ├── adapters/              # First-party Go plugins
-│   └── docker/            # Default MVP adapter (dex-adapter-docker)
+│   └── docker/            # Default MVP adapter; in-process in Phase 1, dex-adapter-docker in Phase 2
 ├── packages/
 │   └── sdk/               # @dex/iac TypeScript npm package
 │       ├── src/

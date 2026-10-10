@@ -17,6 +17,7 @@ Dexter (`dex`): homelab IaC + control plane. Users write TypeScript; a single Go
 - **SDK** (`packages/`): builder functions (`service`, `volume`, `network`, …) that emit the IR. It runs inside `goja` after `esbuild` bundles it, so it is pure ECMAScript: no Node built-ins, no Node-dependent packages.
 - **Engine** (`cmd/dex`, `pkg/`): parses IR, builds the DAG, diffs against state, drives adapters. It is a dumb orchestrator; target-specific logic belongs in an adapter.
 - **Adapters** (`cmd/dex-adapter-<target>`): standalone binaries that speak only the gRPC contract. Third parties build them from the public plugin package alone, so adapters import `pkg/plugin` and never `pkg/engine`.
+- **Phase 1 exception:** the Docker adapter (`adapters/docker`) runs in-process, called through a small `engine.Adapter` wrapper in `cmd/dex/internal/cli`. It already imports nothing from this repo, so Phase 2 can wrap it in a gRPC binary unchanged.
 
 The IR and `proto/adapter.proto` are the two contracts. Changing either is one change across every side: SDK emitter, engine parser, adapters, and the SPEC section.
 
@@ -29,7 +30,7 @@ Everything the engine writes into a user's project lives under `.dex/` at the pr
 The Go and Node ecosystems stay separate, split by directory:
 
 - TypeScript: `pnpm` only (version pinned in `package.json`), workspace `packages/*`.
-- Go: modules under `cmd/` and `pkg/`, registered in `go.work`.
+- Go: modules under `cmd/`, `pkg/`, and `adapters/`, registered in `go.work`.
 - `task` is the bridge. Use `task build` for a full build (`build:go` depends on `build:ts`, since the Go binary embeds the built SDK bundle); `task --list` shows the rest.
 
 ## License

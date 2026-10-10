@@ -9,7 +9,7 @@ One named piece of infrastructure declared in user code: a type, a Plugin, prope
 
 **Adapter**:
 The component that turns a Resource into calls against one target system (Docker, Proxmox, …). It may run in-process inside `dex` or as a separate plugin binary reached over gRPC; the role is the same either way.
-_Avoid_: Provider (legacy name for the in-process `engine.Provider` interface, being renamed to `Adapter`)
+_Avoid_: Provider
 
 **Plugin**:
 The name a Resource gives in its `plugin` field to select which Adapter manages it (e.g. `docker`).
@@ -19,3 +19,7 @@ A long-running workload the user declares with the `service()` builder. Its Reso
 
 **Container**:
 The Resource type produced by `service()`; what the Docker Adapter materializes on the target host.
+
+**Tainted**:
+A Resource whose last create or update failed, so its saved state may not match the target; the next apply replaces it.
+_Avoid_: dirty, failed

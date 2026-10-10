@@ -20,12 +20,13 @@ tasks:
     sources:
       - cmd/**/*.go
       - pkg/**/*.go
+      - adapters/**/*.go
       - pkg/jsenv/sdk/iac.js
 
   test:go:
     desc: Run Go tests with the 100% coverage gate
     cmds:
-      - go test ./pkg/... ./cmd/dex/... -covermode=count -coverprofile=coverage.out
+      - go test ./pkg/... ./cmd/dex/... ./adapters/docker/... -covermode=count -coverprofile=coverage.out
       - ./scripts/check-coverage.sh coverage.out
 
   build:

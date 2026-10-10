@@ -102,7 +102,9 @@ func Compute(desired *ir.Document, current *state.State) (*Plan, error) {
 			})
 			continue
 		}
-		if des.Type != cur.Type || des.Plugin != cur.Plugin {
+		// A tainted resource's target may not match its saved properties, so
+		// it is replaced even when the properties are unchanged.
+		if des.Type != cur.Type || des.Plugin != cur.Plugin || cur.Tainted {
 			plan.Changes = append(plan.Changes,
 				Change{Action: ActionDelete, Name: name, Type: cur.Type, Plugin: cur.Plugin, Current: &cur},
 				Change{Action: ActionCreate, Name: name, Type: des.Type, Plugin: des.Plugin, Desired: &des},
