@@ -3,11 +3,12 @@ package plugin
 import (
 	"context"
 	"fmt"
-	goplugin "github.com/hashicorp/go-plugin"
 	"net"
 	"strings"
 	"testing"
 	"time"
+
+	goplugin "github.com/hashicorp/go-plugin"
 
 	"github.com/freality/dexter/pkg/plugin/pb"
 	"google.golang.org/grpc"
@@ -24,7 +25,8 @@ func whiteboxPair(t *testing.T, a Adapter) (Adapter, func()) {
 	pb.RegisterAdapterServer(srv, &grpcServer{impl: a})
 	go srv.Serve(listener)
 
-	conn, err := grpc.Dial("passthrough:///bufconn",
+	conn, err := grpc.Dial(
+		"passthrough:///bufconn",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 			return listener.DialContext(ctx)
 		}),
@@ -126,6 +128,77 @@ func (m *mockAdapter) Destroy(ctx context.Context, req Request, r Reporter) erro
 }
 
 // ---------------- Serve / Open path tests ----------------
+
+// ---------------- watchOrphan ----------------
+
+// TestWatchOrphanExitsOnReparent verifies watchOrphan calls osExit once the
+// current ppid no longer matches the one it was started with.
+func TestWatchOrphanExitsOnReparent(t *testing.T) {
+	origInterval := orphanCheckInterval
+	orphanCheckInterval = time.Millisecond
+	defer func() { orphanCheckInterval = origInterval }()
+
+	origExit := osExit
+	exited := make(chan struct{})
+	osExit = func(int) { close(exited) }
+	defer func() { osExit = origExit }()
+
+	origGetppid := osGetppid
+	// Report a changed ppid on every call, forcing the "reparented" branch
+	// on the first tick.
+	osGetppid = func() int { return 1 }
+	defer func() { osGetppid = origGetppid }()
+
+	done := make(chan struct{})
+	go func() { watchOrphan(0, nil); close(done) }()
+
+	select {
+	case <-exited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchOrphan did not call osExit after a ppid change")
+	}
+	// watchOrphan must return after calling osExit (osExit doesn't, in the
+	// stub, unlike the real os.Exit), so the goroutine doesn't keep running
+	// with the seams restored out from under it.
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchOrphan did not return after calling osExit")
+	}
+}
+
+// TestWatchOrphanKeepsPollingWhileParentAlive verifies watchOrphan does NOT
+// exit while the parent is unchanged (the common case: the host is still
+// running).
+func TestWatchOrphanKeepsPollingWhileParentAlive(t *testing.T) {
+	origInterval := orphanCheckInterval
+	orphanCheckInterval = time.Millisecond
+	defer func() { orphanCheckInterval = origInterval }()
+
+	exited := make(chan struct{})
+	origExit := osExit
+	osExit = func(int) { close(exited) }
+	defer func() { osExit = origExit }()
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { watchOrphan(osGetppid(), stop); close(done) }()
+
+	select {
+	case <-exited:
+		t.Fatal("watchOrphan called osExit while the parent was unchanged")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Stop the watch and confirm it actually ends the goroutine, covering
+	// the stop-channel branch (Serve's own shutdown path).
+	close(stop)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchOrphan did not return after stop was closed")
+	}
+}
 
 func TestServeCallsPluginServe(t *testing.T) {
 	called := false
@@ -376,7 +449,8 @@ func TestAdapterPluginGRPCClient(t *testing.T) {
 	go srv.Serve(listener)
 	defer srv.Stop()
 
-	conn, err := grpc.Dial("passthrough:///bufconn",
+	conn, err := grpc.Dial(
+		"passthrough:///bufconn",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
@@ -402,7 +476,8 @@ func TestClientApplyStreamError(t *testing.T) {
 	go srv.Serve(listener)
 	srv.Stop()
 
-	conn, err := grpc.Dial("passthrough:///bufconn",
+	conn, err := grpc.Dial(
+		"passthrough:///bufconn",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -423,7 +498,8 @@ func TestClientDestroyStreamError(t *testing.T) {
 	go srv.Serve(listener)
 	srv.Stop()
 
-	conn, err := grpc.Dial("passthrough:///bufconn",
+	conn, err := grpc.Dial(
+		"passthrough:///bufconn",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -453,7 +529,8 @@ func TestCollectResultRecvError(t *testing.T) {
 	go srv.Serve(listener)
 	defer srv.Stop()
 
-	conn, err := grpc.Dial("passthrough:///bufconn",
+	conn, err := grpc.Dial(
+		"passthrough:///bufconn",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 			return listener.DialContext(ctx)
 		}),
@@ -494,7 +571,8 @@ func TestCollectResultEOF(t *testing.T) {
 	go srv.Serve(listener)
 	defer srv.Stop()
 
-	conn, err := grpc.Dial("passthrough:///bufconn",
+	conn, err := grpc.Dial(
+		"passthrough:///bufconn",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 			return listener.DialContext(ctx)
 		}),
