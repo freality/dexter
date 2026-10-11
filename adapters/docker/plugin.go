@@ -23,9 +23,9 @@ func NewPlugin(a *Adapter) *Plugin {
 // Empty Prior means create; non-nil means update.
 func (p *Plugin) Apply(ctx context.Context, req plugin.Request, r plugin.Reporter) (map[string]any, error) {
 	if req.Prior == nil {
-		return p.a.Create(ctx, req.Name, req.Type, req.Properties)
+		return p.a.Create(ctx, req.Name, req.Type, req.Properties, r)
 	}
-	return p.a.Update(ctx, req.Name, req.Properties, req.Prior)
+	return p.a.Update(ctx, req.Name, req.Properties, req.Prior, r)
 }
 
 // Destroy delegates to Delete.

@@ -70,6 +70,14 @@ func New(o Options) *Engine {
 	}
 }
 
+// SetEvents replaces the events callback. Used by the TUI to swap in its
+// own sink before Apply. Safe to call concurrently with emit.
+func (e *Engine) SetEvents(fn func(Event)) {
+	e.eventsMu.Lock()
+	e.events = fn
+	e.eventsMu.Unlock()
+}
+
 // emit forwards one event to the Options.Events callback, if set. It is
 // serialized: concurrent change workers (W4b) report through the same
 // callback, and no sink is required to be goroutine-safe.

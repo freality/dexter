@@ -20,11 +20,11 @@ type dockerEngineAdapter struct {
 }
 
 func (a *dockerEngineAdapter) Create(ctx context.Context, name string, r ir.Resource, _ func(engine.Event)) (map[string]any, error) {
-	return a.d.Create(ctx, name, r.Type, r.Properties)
+	return a.d.Create(ctx, name, r.Type, r.Properties, nil)
 }
 
 func (a *dockerEngineAdapter) Update(ctx context.Context, name string, r ir.Resource, cur state.Resource, _ func(engine.Event)) (map[string]any, error) {
-	return a.d.Update(ctx, name, r.Properties, cur.Properties)
+	return a.d.Update(ctx, name, r.Properties, cur.Properties, nil)
 }
 
 func (a *dockerEngineAdapter) Delete(ctx context.Context, name string, cur state.Resource, _ func(engine.Event)) error {

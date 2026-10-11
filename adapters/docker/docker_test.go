@@ -30,7 +30,7 @@ func TestCreatePullsMissingImageAndStartsLabelledContainer(t *testing.T) {
 	f := NewFake()
 	a := newTestAdapter(f)
 
-	out, err := a.Create(context.Background(), "whoami", "container", whoami())
+	out, err := a.Create(context.Background(), "whoami", "container", whoami(), &noopReporter{})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -72,7 +72,7 @@ func TestCreateSkipsPullWhenImagePresent(t *testing.T) {
 	f := NewFake()
 	f.Images["traefik/whoami:latest"] = true
 
-	if _, err := newTestAdapter(f).Create(context.Background(), "whoami", "container", whoami()); err != nil {
+	if _, err := newTestAdapter(f).Create(context.Background(), "whoami", "container", whoami(), &noopReporter{}); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if slices.Contains(f.Calls, "ImagePull") {
@@ -82,7 +82,7 @@ func TestCreateSkipsPullWhenImagePresent(t *testing.T) {
 
 func TestCreateRejectsUnsupportedType(t *testing.T) {
 	f := NewFake()
-	_, err := newTestAdapter(f).Create(context.Background(), "data", "volume", map[string]any{})
+	_, err := newTestAdapter(f).Create(context.Background(), "data", "volume", map[string]any{}, &noopReporter{})
 	if err == nil || err.Error() != `docker: unsupported type "volume"` {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -98,7 +98,7 @@ func TestCreateAcceptsOptionalProperties(t *testing.T) {
 		"command": []any{"postgres", "-c", "fsync=off"},
 		"restart": "always",
 	}
-	if _, err := newTestAdapter(f).Create(context.Background(), "db", "container", props); err != nil {
+	if _, err := newTestAdapter(f).Create(context.Background(), "db", "container", props, &noopReporter{}); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	c := f.Containers["db"]
@@ -149,7 +149,7 @@ func TestCreateRejectsInvalidProperties(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := NewFake()
-			_, err := newTestAdapter(f).Create(context.Background(), "whoami", "container", tc.props)
+			_, err := newTestAdapter(f).Create(context.Background(), "whoami", "container", tc.props, &noopReporter{})
 			if err == nil || err.Error() != tc.want {
 				t.Fatalf("Create() error = %v, want %q", err, tc.want)
 			}
@@ -163,12 +163,12 @@ func TestCreateRejectsInvalidProperties(t *testing.T) {
 func TestCreateReplacesOrphanedDexContainer(t *testing.T) {
 	f := NewFake()
 	a := newTestAdapter(f)
-	if _, err := a.Create(context.Background(), "whoami", "container", whoami()); err != nil {
+	if _, err := a.Create(context.Background(), "whoami", "container", whoami(), &noopReporter{}); err != nil {
 		t.Fatal(err)
 	}
 	orphan := f.Containers["whoami"].ID
 
-	out, err := a.Create(context.Background(), "whoami", "container", whoami())
+	out, err := a.Create(context.Background(), "whoami", "container", whoami(), &noopReporter{})
 	if err != nil {
 		t.Fatalf("Create() over orphan error = %v", err)
 	}
@@ -181,7 +181,7 @@ func TestCreateRefusesForeignContainer(t *testing.T) {
 	f := NewFake()
 	f.Containers["whoami"] = &FakeContainer{ID: "theirs", Config: &container.Config{}, Running: true}
 
-	_, err := newTestAdapter(f).Create(context.Background(), "whoami", "container", whoami())
+	_, err := newTestAdapter(f).Create(context.Background(), "whoami", "container", whoami(), &noopReporter{})
 	if err == nil || err.Error() != `container "whoami" exists and is not managed by dex` {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -194,7 +194,7 @@ func TestCreateFailsWhenContainerExitsRightAfterStart(t *testing.T) {
 	f := NewFake()
 	f.CrashOnStart = true
 
-	_, err := newTestAdapter(f).Create(context.Background(), "whoami", "container", whoami())
+	_, err := newTestAdapter(f).Create(context.Background(), "whoami", "container", whoami(), &noopReporter{})
 	want := `container "whoami" is not running after start (exit code 1); see docker logs whoami`
 	if err == nil || err.Error() != want {
 		t.Fatalf("Create() error = %v, want %q", err, want)
@@ -211,7 +211,7 @@ func TestCreateStopsWaitingWhenContextIsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := a.Create(ctx, "whoami", "container", whoami())
+	_, err := a.Create(ctx, "whoami", "container", whoami(), &noopReporter{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Create() error = %v, want context.Canceled", err)
 	}
@@ -242,7 +242,7 @@ func TestCreateWrapsDockerErrors(t *testing.T) {
 				f.Containers["whoami"] = &FakeContainer{ID: "old", Config: &container.Config{Labels: map[string]string{"dev.dex.resource": "whoami"}}}
 			}
 			f.Err[tc.method] = boom
-			_, err := newTestAdapter(f).Create(context.Background(), "whoami", "container", whoami())
+			_, err := newTestAdapter(f).Create(context.Background(), "whoami", "container", whoami(), &noopReporter{})
 			if !errors.Is(err, boom) || err.Error() != tc.want {
 				t.Fatalf("Create() error = %v, want %q", err, tc.want)
 			}
@@ -255,7 +255,7 @@ func created(t *testing.T) (*Adapter, *Fake, string) {
 	t.Helper()
 	f := NewFake()
 	a := newTestAdapter(f)
-	out, err := a.Create(context.Background(), "whoami", "container", whoami())
+	out, err := a.Create(context.Background(), "whoami", "container", whoami(), &noopReporter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestUpdateRestartOnlyChangesPolicyInPlace(t *testing.T) {
 	desired := whoami()
 	desired["restart"] = "always"
 
-	out, err := a.Update(context.Background(), "whoami", desired, whoami())
+	out, err := a.Update(context.Background(), "whoami", desired, whoami(), &noopReporter{})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -290,7 +290,7 @@ func TestUpdateRestartOnlyRecreatesMissingContainer(t *testing.T) {
 	desired := whoami()
 	desired["restart"] = "always"
 
-	out, err := a.Update(context.Background(), "whoami", desired, whoami())
+	out, err := a.Update(context.Background(), "whoami", desired, whoami(), &noopReporter{})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -308,7 +308,7 @@ func TestUpdateOtherChangeReplacesContainer(t *testing.T) {
 	desired := whoami()
 	desired["ports"] = []any{"8081:80"}
 
-	out, err := a.Update(context.Background(), "whoami", desired, whoami())
+	out, err := a.Update(context.Background(), "whoami", desired, whoami(), &noopReporter{})
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -326,7 +326,7 @@ func TestUpdateReplacesWhenSavedPropertiesNoLongerParse(t *testing.T) {
 	cur := whoami()
 	cur["legacy"] = true
 
-	if _, err := a.Update(context.Background(), "whoami", whoami(), cur); err != nil {
+	if _, err := a.Update(context.Background(), "whoami", whoami(), cur, &noopReporter{}); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
 	if f.Containers["whoami"].ID == id {
@@ -340,7 +340,7 @@ func TestUpdatePullsNewImageBeforeRemovingOldContainer(t *testing.T) {
 	desired := whoami()
 	desired["image"] = "traefik/whoami:v1.10"
 
-	if _, err := a.Update(context.Background(), "whoami", desired, whoami()); err == nil {
+	if _, err := a.Update(context.Background(), "whoami", desired, whoami(), &noopReporter{}); err == nil {
 		t.Fatal("Update() error = nil, want pull failure")
 	}
 	if c := f.Containers["whoami"]; c == nil || c.ID != id || !c.Running {
@@ -350,7 +350,7 @@ func TestUpdatePullsNewImageBeforeRemovingOldContainer(t *testing.T) {
 
 func TestUpdateRejectsInvalidDesiredProperties(t *testing.T) {
 	a, f, _ := created(t)
-	_, err := a.Update(context.Background(), "whoami", map[string]any{}, whoami())
+	_, err := a.Update(context.Background(), "whoami", map[string]any{}, whoami(), &noopReporter{})
 	if err == nil || err.Error() != `property "image": required string` {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -378,7 +378,7 @@ func TestUpdateWrapsDockerErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			a, f, _ := created(t)
 			f.Err[tc.method] = boom
-			_, err := a.Update(context.Background(), "whoami", tc.desired, whoami())
+			_, err := a.Update(context.Background(), "whoami", tc.desired, whoami(), &noopReporter{})
 			if !errors.Is(err, boom) || err.Error() != tc.want {
 				t.Fatalf("Update() error = %v, want %q", err, tc.want)
 			}
@@ -431,7 +431,7 @@ func TestUpdateRestartOnlyReportsPullFailureForMissingContainer(t *testing.T) {
 	desired := whoami()
 	desired["restart"] = "always"
 
-	_, err := a.Update(context.Background(), "whoami", desired, whoami())
+	_, err := a.Update(context.Background(), "whoami", desired, whoami(), &noopReporter{})
 	if err == nil || err.Error() != `pull image "traefik/whoami:latest": registry down` {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -460,7 +460,7 @@ func TestUpdateReplaceRefusesForeignContainer(t *testing.T) {
 	desired := whoami()
 	desired["ports"] = []any{"8081:80"}
 
-	_, err := newTestAdapter(f).Update(context.Background(), "whoami", desired, whoami())
+	_, err := newTestAdapter(f).Update(context.Background(), "whoami", desired, whoami(), &noopReporter{})
 	if err == nil || err.Error() != `container "whoami" exists and is not managed by dex` {
 		t.Fatalf("Update() error = %v", err)
 	}
