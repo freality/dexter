@@ -12,6 +12,16 @@ tasks:
     generates:
       - packages/**/dist/*
 
+  gen:proto:
+    desc: Generate protobuf Go code
+    cmds:
+      - go run github.com/bufbuild/buf/cmd/buf@v1.32.2 generate --template buf.gen.yaml
+    sources:
+      - proto/adapter.proto
+      - buf.gen.yaml
+    generates:
+      - pkg/plugin/pb/*.pb.go
+
   build:go:
     desc: Build the Go CLI
     deps: [build:ts]

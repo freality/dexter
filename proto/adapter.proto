@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package dex.plugin;
+
+option go_package = "github.com/freality/dexter/pkg/plugin/pb";
+
+service Adapter {
+  rpc Apply(ApplyRequest) returns (stream ApplyResponse);
+  rpc Destroy(DestroyRequest) returns (stream ApplyResponse);
+}
+
+message ApplyRequest {
+  string resource_id = 1;
+  string type = 2;
+  string properties_json = 3;
+  string prior_properties_json = 4;
+}
+
+message DestroyRequest {
+  string resource_id = 1;
+  string type = 2;
+  string properties_json = 3;
+  string outputs_json = 4;
+}
+
+message ApplyResponse {
+  enum Type {
+    LOG = 0;
+    PROGRESS = 1;
+    SUCCESS = 2;
+    ERROR = 3;
+  }
+  Type type = 1;
+  string message = 2;
+  string new_state_json = 3;
+}

@@ -23,4 +23,6 @@ jobs:
         with:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check generated proto is up to date
+        run: task gen:proto && git diff --exit-code
       - run: task check
