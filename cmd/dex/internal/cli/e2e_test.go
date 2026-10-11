@@ -53,6 +53,13 @@ func (p *e2eProject) config(services map[string]string) {
 		p.t.Fatal(err)
 	}
 	servicesDir := filepath.Join(p.dir, "dex", "services")
+	// Fully replace the declared service set each call: dex init scaffolds
+	// dex/services/whoami.ts, and a prior config() call may have left other
+	// files here, so a stale file would otherwise keep showing up in every
+	// later plan (including config(nil), which must discover zero services).
+	if err := os.RemoveAll(servicesDir); err != nil {
+		p.t.Fatal(err)
+	}
 	if err := os.MkdirAll(servicesDir, 0o755); err != nil {
 		p.t.Fatal(err)
 	}
