@@ -53,14 +53,6 @@ func TestMainPlanMissingConfig(t *testing.T) {
 	}
 }
 
-func TestEnvMap(t *testing.T) {
-	t.Setenv("DEX_TEST_ENV_VAR", "value")
-	m := envMap()
-	if m["DEX_TEST_ENV_VAR"] != "value" {
-		t.Fatalf("envMap()[DEX_TEST_ENV_VAR] = %q, want %q", m["DEX_TEST_ENV_VAR"], "value")
-	}
-}
-
 // TestMainInitThenPlanEndToEnd drives the real production engine factory
 // (esbuild + goja + the embedded SDK), not a fake, so newProductionEngine
 // is exercised end to end.

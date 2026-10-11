@@ -49,6 +49,25 @@ function envFrom(source, key, fallback) {
   throw new DexError("MISSING_ENV", `environment variable "${key}" is not set and no fallback was provided`);
 }
 
+// packages/sdk/dist/commands.js
+function createCommandRegistry() {
+  const commands = /* @__PURE__ */ new Map();
+  return Object.freeze({
+    define(name, spec) {
+      if (commands.has(name)) {
+        throw new DexError("DUPLICATE_COMMAND", `command "${name}" is already defined`);
+      }
+      commands.set(name, spec);
+    },
+    get(name) {
+      return commands.get(name);
+    },
+    names() {
+      return [...commands.keys()].sort();
+    }
+  });
+}
+
 // packages/sdk/dist/registry.js
 function createResourceRegistry() {
   const nodes = /* @__PURE__ */ new Map();
@@ -205,6 +224,7 @@ function stableStringify(value) {
 function createDexScope(options) {
   var _a;
   const registry = createResourceRegistry();
+  const commands = createCommandRegistry();
   const envSource = (_a = options == null ? void 0 : options.envSource) != null ? _a : createHostEnvSource();
   let config;
   const synth2 = () => {
@@ -226,6 +246,8 @@ function createDexScope(options) {
     network: defineResource("network", registry),
     env: (key, fallback) => envFrom(envSource, key, fallback),
     secret: (key) => secret(key),
+    defineCommand: (name, spec) => commands.define(name, spec),
+    commands,
     synth: synth2,
     synthJSON: () => stableStringify(synth2())
   });
@@ -233,6 +255,7 @@ function createDexScope(options) {
 
 // packages/sdk/dist/index.js
 var SYNTH_GLOBAL = "__dex_synth";
+var COMMANDS_GLOBAL = "__dex_commands";
 var defaultScope = createDexScope();
 var defineDexConfig = defaultScope.defineDexConfig;
 var service = defaultScope.service;
@@ -240,11 +263,19 @@ var volume = defaultScope.volume;
 var network = defaultScope.network;
 var env = defaultScope.env;
 var secret2 = defaultScope.secret;
+var defineCommand = defaultScope.defineCommand;
 var synth = defaultScope.synth;
 globalThis[SYNTH_GLOBAL] = defaultScope.synthJSON;
+globalThis[COMMANDS_GLOBAL] = () => defaultScope.commands.names().map((name) => {
+  var _a;
+  const spec = defaultScope.commands.get(name);
+  return { name, description: (_a = spec.description) != null ? _a : "", run: spec.run };
+});
 export {
+  COMMANDS_GLOBAL,
   DexError,
   SYNTH_GLOBAL,
+  defineCommand,
   defineDexConfig,
   env,
   network,

@@ -37,3 +37,27 @@ export interface SecretRef {
   readonly provider: "env";
   readonly key: string;
 }
+
+/** Runtime context handed to a command's run() by `dex run` (D13). */
+export interface CommandContext {
+  readonly args: readonly string[];
+  env(key: string): string | undefined;
+  /** Resource state exactly as persisted in state.json; secret properties stay `{ $dex_type, provider, key, sha256 }` until secret() is called. */
+  readonly resources: Readonly<Record<string, IRValue>>;
+  /** Plaintext of a .env/process-env value, the same source env() uses. */
+  secret(key: string): string;
+  /** Runs argv as a host process with stdio attached, returning its exit code. */
+  exec(argv: readonly string[]): number;
+}
+
+export interface CommandSpec {
+  description?: string;
+  run(ctx: CommandContext): number | void;
+}
+
+/** One registered command as exposed to the Go runner via the __dex_commands global. */
+export interface CommandEntry {
+  name: string;
+  readonly description: string;
+  readonly run: (ctx: CommandContext) => number | void;
+}

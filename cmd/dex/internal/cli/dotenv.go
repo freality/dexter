@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+// mergeProcessEnv overlays process environment over env (process env wins
+// for the same key). Every os.Environ entry is KEY=VALUE, so the !ok branch
+// is unreachable on supported platforms.
+func mergeProcessEnv(env map[string]string) {
+	for _, kv := range os.Environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			env[k] = v
+		}
+	}
+}
+
 // loadEnv reads <dir>/.env and returns a map of key-value pairs.
 //
 // Syntax (one level only, no interpolation or continuation):
