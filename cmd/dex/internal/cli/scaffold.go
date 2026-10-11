@@ -9,7 +9,7 @@ import (
 
 const configTemplate = `import { defineDexConfig } from "@dex/iac";
 
-defineDexConfig({ project: "homelab" });
+defineDexConfig({ project: "homelab", plugins: ["github.com/freality/dexter@v1.0.0"] });
 `
 
 const whoamiTemplate = `import { env, service } from "@dex/iac";

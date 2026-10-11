@@ -1,0 +1,36 @@
+# Release workflow for dex adapter plugins.
+# On a v* tag: build the SDK, cross-compile adapters, create a GitHub release.
+name: release
+on:
+  push:
+    tags:
+      - "v*"
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 11
+      - run: task build:ts
+      - name: Build release binaries
+        run: |
+          for GOOS in linux darwin; do
+            for GOARCH in amd64 arm64; do
+              export GOOS GOARCH CGO_ENABLED=0
+              go build -o "dex_${GOOS}_${GOARCH}" ./cmd/dex
+              go build -o "dex-adapter-docker_${GOOS}_${GOARCH}" ./adapters/docker/cmd/dex-adapter-docker
+            done
+          done
+          sha256sum dex_* dex-adapter-docker_* > checksums.txt
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dex_* dex-adapter-docker_* checksums.txt
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

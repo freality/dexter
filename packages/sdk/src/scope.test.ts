@@ -74,7 +74,7 @@ describe("createDexScope", () => {
     expect(a.commands.get("x")?.run({} as never)).toBe(0);
     expect(b.commands.get("x")?.run({} as never)).toBe(1);
     a.defineDexConfig({ project: "a" });
-    expect(a.synth()).toEqual({ project: "a", resources: {} });
+    expect(a.synth()).toEqual({ project: "a", plugins: [], resources: {} });
   });
 
   it("refuses to synth before a config is defined", () => {

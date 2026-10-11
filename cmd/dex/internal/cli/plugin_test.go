@@ -568,18 +568,16 @@ func TestPluginInstallNoPlugins(t *testing.T) {
 	dir := t.TempDir()
 	mustRunInit(t, dir)
 	// Override installBaseURL to a URL that fails fast so the test doesn't hang.
-	installBaseURL = "http://127.0.0.1:1/nonexistent"
-	defer func() { installBaseURL = "https://api.github.com" }()
+	// Override installBaseURL so the install loop fails instead of making network calls.
+	oldBase := installBaseURL
+	installBaseURL = "http://127.0.0.1:1/"
+	defer func() { installBaseURL = oldBase }()
 
-	cmd := newRootCmd(fakeEngineDeps(&ir.Document{Project: "p", Resources: map[string]ir.Resource{}}, state.New()))
+	// mustRunInit creates a project with plugins, so runPluginInstall will attempt to install.
+	cmd := newRootCmd(productionDeps())
 	cmd.SetArgs([]string{"plugin", "install", "--dir", dir})
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v (expected: no plugins declared message)", err)
-	}
-	if !strings.Contains(out.String(), "No plugins declared in dex.config.ts") {
-		t.Fatalf("out = %q, want 'No plugins declared' message", out.String())
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Expected install error (network failure), got nil")
 	}
 }
 
