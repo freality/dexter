@@ -52,3 +52,7 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 ### Domain docs
 
 Single-context: root `GLOSSARY.md` + `docs/adr/`, created on demand. See `docs/agents/domain.md`.
+
+### Parallel dispatch
+
+Dispatching two or more code-editing agents at once? `task check` scans by module, not by ticket's files, so a sibling's unfinished package can fail your gate. See `docs/agents/parallel-dispatch.md`.

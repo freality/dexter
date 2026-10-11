@@ -48,7 +48,7 @@ tasks:
     desc: gofmt, go vet, and the shadow analyzer
     cmds:
       - |
-        unformatted=$(gofmt -l $(git ls-files '*.go'))
+        unformatted=$(gofmt -l $(git ls-files --cached --others --exclude-standard '*.go'))
         if [ -n "$unformatted" ]; then echo "gofmt needed: $unformatted" >&2; exit 1; fi
       - go vet $(go list -m | sed 's,$,/...,')
       - go run golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.51.0 $(go list -m | sed 's,$,/...,')
