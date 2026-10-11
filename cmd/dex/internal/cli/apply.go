@@ -71,23 +71,38 @@ func runApply(ctx context.Context, e *engine.Engine, plan *diff.Plan, w io.Write
 	return e.Apply(ctx, plan)
 }
 
+// termIsTerminal is a seam over term.IsTerminal for tests (mirrors
+// cmd/dex/internal/cli/plugins.go's pluginOpen seam): real terminal fds
+// can't be fabricated, so tests stub the check instead.
+var termIsTerminal = term.IsTerminal
+
 // isTerminal reports whether w is connected to a terminal.
 func isTerminal(w io.Writer) bool {
 	if f, ok := w.(term.File); ok {
-		return term.IsTerminal(f.Fd())
+		return termIsTerminal(f.Fd())
 	}
 	return false
 }
 
+// ttyInput overrides the TUI Program's input source in tests; nil (the
+// default) leaves bubbletea reading the real stdin, which production needs
+// for Ctrl+C to reach ApplyModel.Update as a tea.KeyMsg.
+var ttyInput io.Reader
+
+// runProgram is a seam over (*tea.Program).Run for tests: forcing a real
+// bubbletea internal error (distinct from the expected kill/interrupt) isn't
+// reliably reproducible from outside the library, so tests stub this
+// instead (same pattern as termIsTerminal and pluginOpen).
+var runProgram = func(p *tea.Program) (tea.Model, error) { return p.Run() }
+
 // runApplyTUI runs the TUI-driven apply.
 func runApplyTUI(ctx context.Context, e *engine.Engine, plan *diff.Plan, w io.Writer) (*diff.Plan, error) {
 	model := NewApplyModel()
-	p := tea.NewProgram(
-		model,
-		tea.WithOutput(w),
-		tea.WithoutSignalHandler(),
-		tea.WithoutSignals(),
-	)
+	opts := []tea.ProgramOption{tea.WithOutput(w), tea.WithoutSignalHandler(), tea.WithoutSignals()}
+	if ttyInput != nil {
+		opts = append(opts, tea.WithInput(ttyInput))
+	}
+	p := tea.NewProgram(model, opts...)
 
 	e.SetEvents(func(ev engine.Event) {
 		p.Send(EventMsg{Event: ev})
@@ -102,7 +117,7 @@ func runApplyTUI(ctx context.Context, e *engine.Engine, plan *diff.Plan, w io.Wr
 		applied, applyErr = e.Apply(ctx, plan)
 	}()
 
-	if _, err := p.Run(); err != nil && !errors.Is(err, tea.ErrProgramKilled) && !errors.Is(err, tea.ErrInterrupted) {
+	if _, err := runProgram(p); err != nil && !errors.Is(err, tea.ErrProgramKilled) && !errors.Is(err, tea.ErrInterrupted) {
 		return nil, err
 	}
 	if applyErr != nil {

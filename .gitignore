@@ -66,4 +66,4 @@ Thumbs.db
 *.swo
 
 # task runner local cache
-.task/
+.task/*.filtered
