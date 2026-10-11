@@ -107,8 +107,7 @@ func gateEngine(t *testing.T, desired *ir.Document, current *state.State, gate *
 	if current == nil {
 		current = state.New()
 	}
-	registry := NewRegistry()
-	registry.Register("docker", gate)
+	registry := NewRegistry(resolveOne("docker", gate))
 	store := &fakeStore{st: current}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: &fakeLocker{}, Registry: registry})
 	return e, store
@@ -298,8 +297,7 @@ func TestEngineApplyReplaceCreateWaitsOnDelete(t *testing.T) {
 		createEntered: make(chan struct{}, 1),
 		release:       make(chan struct{}),
 	}
-	registry := NewRegistry()
-	registry.Register("docker", gate)
+	registry := NewRegistry(resolveOne("docker", gate))
 	e := New(Options{
 		Synth:    fakeSynth(t, desired),
 		Store:    &fakeStore{st: current},
@@ -375,7 +373,7 @@ func TestEngineApplyPlanChangeCycle(t *testing.T) {
 			{Action: diff.ActionDelete, Name: "b", Type: "t", Plugin: "docker", Current: &state.Resource{DependsOn: []string{"a"}}},
 		},
 	}
-	e := New(Options{Store: &fakeStore{st: state.New()}, Lock: &fakeLocker{}, Registry: NewRegistry()})
+	e := New(Options{Store: &fakeStore{st: state.New()}, Lock: &fakeLocker{}, Registry: NewRegistry(resolveNone())})
 	_, err := e.Apply(context.Background(), plan)
 	if err == nil || !strings.Contains(err.Error(), "dependency cycle") {
 		t.Fatalf("Apply() error = %v, want a dependency-cycle error", err)

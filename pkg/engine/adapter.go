@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/freality/dexter/pkg/engine/ir"
 	"github.com/freality/dexter/pkg/engine/state"
@@ -25,6 +26,9 @@ type Registry struct {
 	resolve func(plugin string) (Adapter, error)
 	cache   map[string]Adapter
 	cacheOk map[string]bool
+	// mu guards cache/cacheOk: W4b calls Get concurrently from the change
+	// workers, but each plugin still resolves at most once.
+	mu sync.Mutex
 }
 
 // NewRegistry returns a Registry backed by resolve, which is called at most
@@ -36,6 +40,8 @@ func NewRegistry(resolve func(plugin string) (Adapter, error)) *Registry {
 // Get returns the Adapter for plugin, resolving lazily and caching the result.
 // An earlier resolve error for the same name is replayed without re-calling resolve.
 func (r *Registry) Get(plugin string) (Adapter, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if ok, seen := r.cacheOk[plugin]; seen {
 		if !ok {
 			return nil, fmt.Errorf("no adapter registered for plugin %q", plugin)
