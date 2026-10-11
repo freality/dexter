@@ -47,6 +47,9 @@ type Plan struct {
 	// a confirmed plan instead of silently applying it against new state.
 	Project    string
 	BaseSerial int
+	// Dir is the project root directory, set by Engine.Plan so Apply can
+	// locate the secret key.
+	Dir string
 }
 
 // Counts returns the number of create/update/delete changes.

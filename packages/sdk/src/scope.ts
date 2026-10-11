@@ -2,8 +2,10 @@ import { createHostEnvSource, envFrom, type EnvSource } from "./env.js";
 import { DexError } from "./errors.js";
 import { createResourceRegistry } from "./registry.js";
 import { defineResource, type ResourceBuilder } from "./resource.js";
+import { secret } from "./secret.js";
 import { buildIR, stableStringify } from "./synth.js";
 import type { DexConfig, DexIR } from "./types.js";
+import type { SecretRef } from "./types.js";
 
 export interface DexScope {
   defineDexConfig(config: DexConfig): DexConfig;
@@ -11,6 +13,7 @@ export interface DexScope {
   volume: ResourceBuilder;
   network: ResourceBuilder;
   env(key: string, fallback?: string): string;
+  secret(key: string): SecretRef;
   synth(): DexIR;
   synthJSON(): string;
 }
@@ -40,6 +43,7 @@ export function createDexScope(options?: { envSource?: EnvSource }): DexScope {
     volume: defineResource("volume", registry),
     network: defineResource("network", registry),
     env: (key: string, fallback?: string): string => envFrom(envSource, key, fallback),
+    secret: (key: string) => secret(key),
     synth,
     synthJSON: (): string => stableStringify(synth()),
   });

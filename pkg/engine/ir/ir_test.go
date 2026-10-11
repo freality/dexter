@@ -182,3 +182,142 @@ func TestValidateEmptyResourcesOK(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 }
+
+// --- secret token validation --------------------------------------------------
+
+func secretResource(properties map[string]any) Resource {
+	return Resource{Type: "container", Plugin: "docker", Properties: properties, DependsOn: []string{}}
+}
+
+func TestValidateValidSecretToken(t *testing.T) {
+	doc := &Document{Project: "p", Resources: map[string]Resource{
+		"svc": secretResource(map[string]any{"image": "img", "env": map[string]any{
+			"PASSWORD": map[string]any{"$dex_type": "secret", "provider": "env", "key": "DB_PASSWORD"},
+		}}),
+	}}
+	if err := doc.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestValidateSecretTokenExtraField(t *testing.T) {
+	doc := &Document{Project: "p", Resources: map[string]Resource{
+		"svc": secretResource(map[string]any{"env": map[string]any{
+			"PASSWORD": map[string]any{"$dex_type": "secret", "provider": "env", "key": "DB_PWD", "sha256": "abc"},
+		}}),
+	}}
+	err := doc.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Validate() error = %v (%T), want *ValidationError", err, err)
+	}
+	if !strings.Contains(ve.Field, "properties.env.PASSWORD") || !strings.Contains(ve.Reason, "exactly 3 fields") {
+		t.Fatalf("Validate() = %+v, want extra-field rejection", ve)
+	}
+}
+
+func TestValidateSecretTokenWrongProvider(t *testing.T) {
+	doc := &Document{Project: "p", Resources: map[string]Resource{
+		"svc": secretResource(map[string]any{"env": map[string]any{
+			"PASSWORD": map[string]any{"$dex_type": "secret", "provider": "vault", "key": "x"},
+		}}),
+	}}
+	err := doc.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Validate() error = %v (%T), want *ValidationError", err, err)
+	}
+	if ve.Field != `resources["svc"].properties.env.PASSWORD.provider` || ve.Reason != `must be "env"` {
+		t.Fatalf("Validate() = %+v, want provider rejection", ve)
+	}
+}
+
+func TestValidateSecretTokenEmptyKey(t *testing.T) {
+	doc := &Document{Project: "p", Resources: map[string]Resource{
+		"svc": secretResource(map[string]any{"env": map[string]any{
+			"PASSWORD": map[string]any{"$dex_type": "secret", "provider": "env", "key": ""},
+		}}),
+	}}
+	err := doc.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Validate() error = %v (%T), want *ValidationError", err, err)
+	}
+	if ve.Field != `resources["svc"].properties.env.PASSWORD.key` || ve.Reason != "must be a non-empty string" {
+		t.Fatalf("Validate() = %+v, want empty-key rejection", ve)
+	}
+}
+
+func TestValidateSecretTokenMissingKey(t *testing.T) {
+	doc := &Document{Project: "p", Resources: map[string]Resource{
+		"svc": secretResource(map[string]any{"env": map[string]any{
+			"PASSWORD": map[string]any{"$dex_type": "secret", "provider": "env"},
+		}}),
+	}}
+	err := doc.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Validate() error = %v (%T), want *ValidationError", err, err)
+	}
+	if ve.Field != `resources["svc"].properties.env.PASSWORD` || !strings.Contains(ve.Reason, "exactly 3") {
+		t.Fatalf("Validate() = %+v, want missing-key rejection", ve)
+	}
+}
+
+func TestValidateSecretTokenNestedInArray(t *testing.T) {
+	doc := &Document{Project: "p", Resources: map[string]Resource{
+		"svc": secretResource(map[string]any{"env": []any{
+			map[string]any{"$dex_type": "secret", "provider": "env", "key": "DB_PWD"},
+		}}),
+	}}
+	if err := doc.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestValidateSecretTokenSpoofedHash(t *testing.T) {
+	doc := &Document{Project: "p", Resources: map[string]Resource{
+		"svc": secretResource(map[string]any{"env": map[string]any{
+			"PASSWORD": map[string]any{"$dex_type": "secret", "provider": "env", "key": "x", "sha256": "spoof"},
+		}}),
+	}}
+	err := doc.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Validate() error = %v (%T), want *ValidationError", err, err)
+	}
+	if !strings.Contains(ve.Reason, "exactly 3") {
+		t.Fatalf("Validate() = %+v, want extra-field rejection", ve)
+	}
+}
+func TestValidateSecretWrongType(t *testing.T) {
+	doc := &Document{Project: "p", Resources: map[string]Resource{
+		"svc": secretResource(map[string]any{"env": map[string]any{
+			"PASSWORD": map[string]any{"$dex_type": "not_secret", "provider": "env", "key": "x"},
+		}}),
+	}}
+	err := doc.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Validate() error = %v (%T), want *ValidationError", err, err)
+	}
+	if !strings.Contains(ve.Field, ".properties.env.PASSWORD.$dex_type") || !strings.Contains(ve.Reason, `must be "secret"`) {
+		t.Fatalf("Validate() = %+v, want wrong-dex-type rejection", ve)
+	}
+}
+
+func TestValidateSecretInArrayInvalid(t *testing.T) {
+	doc := &Document{Project: "p", Resources: map[string]Resource{
+		"svc": secretResource(map[string]any{"env": []any{
+			map[string]any{"$dex_type": "secret", "provider": "env", "key": "x", "sha256": "abc"},
+		}}),
+	}}
+	err := doc.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Validate() error = %v (%T), want *ValidationError", err, err)
+	}
+	if !strings.Contains(ve.Field, ".properties.env[0]") || !strings.Contains(ve.Reason, "exactly 3") {
+		t.Fatalf("Validate() = %+v, want extra-field rejection in array", ve)
+	}
+}

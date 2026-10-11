@@ -19,7 +19,7 @@ func TestRunInitHappyPath(t *testing.T) {
 	wantLines := []string{
 		"created dex.config.ts",
 		"created .env",
-		"created dex/services/.gitkeep",
+		"created dex/services/whoami.ts",
 		"add .dex/ to your .gitignore",
 	}
 	gotLines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
@@ -40,8 +40,9 @@ func TestRunInitHappyPath(t *testing.T) {
 	if err != nil || string(env) != envTemplate {
 		t.Fatalf(".env = %q, err = %v", env, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "dex", "services", ".gitkeep")); err != nil {
-		t.Fatalf("gitkeep missing: %v", err)
+	whoami, err := os.ReadFile(filepath.Join(dir, "dex", "services", "whoami.ts"))
+	if err != nil || string(whoami) != whoamiTemplate {
+		t.Fatalf("dex/services/whoami.ts = %q, err = %v", whoami, err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".gitignore")); !os.IsNotExist(err) {
 		t.Fatalf("runInit() wrote .gitignore, want it untouched (not a dex init exception per AGENTS.md)")
@@ -104,7 +105,7 @@ func TestRunInitWriteEnvFailure(t *testing.T) {
 	}
 }
 
-func TestRunInitGitkeepMkdirFailure(t *testing.T) {
+func TestRunInitServicesMkdirFailure(t *testing.T) {
 	dir := t.TempDir()
 	// "dex" exists as a regular file, so MkdirAll("dex/services") fails.
 	if err := os.WriteFile(filepath.Join(dir, "dex"), []byte("x"), 0o644); err != nil {
@@ -116,14 +117,14 @@ func TestRunInitGitkeepMkdirFailure(t *testing.T) {
 	}
 }
 
-func TestRunInitGitkeepWriteFailure(t *testing.T) {
+func TestRunInitWhoamiWriteFailure(t *testing.T) {
 	dir := t.TempDir()
-	// .gitkeep exists as a directory, so writing the file fails.
-	if err := os.MkdirAll(filepath.Join(dir, "dex", "services", ".gitkeep"), 0o755); err != nil {
+	// whoami.ts exists as a directory, so writing the file fails.
+	if err := os.MkdirAll(filepath.Join(dir, "dex", "services", "whoami.ts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	err := runInit(&bytes.Buffer{}, dir)
-	if err == nil || !strings.Contains(err.Error(), "write") || !strings.Contains(err.Error(), ".gitkeep") {
+	if err == nil || !strings.Contains(err.Error(), "write") || !strings.Contains(err.Error(), "whoami.ts") {
 		t.Fatalf("runInit() error = %v, want wrapped write error", err)
 	}
 }

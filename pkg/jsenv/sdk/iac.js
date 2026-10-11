@@ -159,6 +159,14 @@ function defineResource(kind, collector) {
   };
 }
 
+// packages/sdk/dist/secret.js
+function secret(key) {
+  if (typeof key !== "string" || key === "") {
+    throw new DexError("INVALID_SECRET", `secret() key must be a non-empty string, got ${typeof key === "string" ? "empty string" : typeof key}`);
+  }
+  return Object.freeze({ $dex_type: "secret", provider: "env", key });
+}
+
 // packages/sdk/dist/synth.js
 function buildIR(config, resources) {
   if (typeof config.project !== "string" || config.project === "") {
@@ -213,6 +221,7 @@ function createDexScope(options) {
     volume: defineResource("volume", registry),
     network: defineResource("network", registry),
     env: (key, fallback) => envFrom(envSource, key, fallback),
+    secret: (key) => secret(key),
     synth: synth2,
     synthJSON: () => stableStringify(synth2())
   });
@@ -226,6 +235,7 @@ var service = defaultScope.service;
 var volume = defaultScope.volume;
 var network = defaultScope.network;
 var env = defaultScope.env;
+var secret2 = defaultScope.secret;
 var synth = defaultScope.synth;
 globalThis[SYNTH_GLOBAL] = defaultScope.synthJSON;
 export {
@@ -234,6 +244,7 @@ export {
   defineDexConfig,
   env,
   network,
+  secret2 as secret,
   service,
   synth,
   volume

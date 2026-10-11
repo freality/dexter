@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -59,20 +58,31 @@ func productionDeps() deps {
 }
 
 // newProductionEngine wires the real esbuild/goja synthesizer, on-disk state
-// store, and Docker adapter. Process env only: .env parsing is Phase 2
-// secrets work.
+// store, and Docker adapter. .env values are loaded first, then process
+// env is overlaid (process env wins for same key).
 func newProductionEngine(dir string) (*engine.Engine, error) {
 	dock, err := docker.New()
 	if err != nil {
 		return nil, err
 	}
 	synth := jsenv.NewSynthesizer(jsenv.NewEsbuildBundler(), jsenv.NewGojaEvaluator())
+
+	env, err := loadEnv(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, kv := range os.Environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			env[k] = v
+		}
+	}
+
 	return engine.New(engine.Options{
 		Synth:    synth,
 		Store:    state.NewFileStore(dir, time.Now),
 		Lock:     state.NewLock(dir),
 		Registry: registryFor(dock),
-		Env:      envMap(),
+		Env:      env,
 		Out:      os.Stdout,
 	}), nil
 }
@@ -85,15 +95,4 @@ func envMap() map[string]string {
 		}
 	}
 	return env
-}
-
-// entrypointPath returns the dex.config.ts path for a project root,
-// erroring with an actionable message when it is missing rather than
-// letting esbuild produce an opaque resolve failure.
-func entrypointPath(dir string) (string, error) {
-	path := filepath.Join(dir, "dex.config.ts")
-	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf("no dex.config.ts in %s (run `dex init`)", dir)
-	}
-	return path, nil
 }

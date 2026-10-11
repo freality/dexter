@@ -48,6 +48,13 @@ describe("createDexScope", () => {
     );
   });
 
+  it("exposes secret() which returns a frozen SecretRef", () => {
+    const { secret: scopeSecret } = createDexScope();
+    const ref = scopeSecret("API_TOKEN");
+    expect(ref).toEqual({ $dex_type: "secret", provider: "env", key: "API_TOKEN" });
+    expect(Object.isFrozen(ref)).toBe(true);
+  });
+
   it("refuses to synth before a config is defined", () => {
     expectDexError(
       () => createDexScope().synth(),

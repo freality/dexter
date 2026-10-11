@@ -16,6 +16,7 @@ export const service = defaultScope.service;
 export const volume = defaultScope.volume;
 export const network = defaultScope.network;
 export const env = defaultScope.env;
+export const secret = defaultScope.secret;
 export const synth = defaultScope.synth;
 
 (globalThis as unknown as Record<string, unknown>)[SYNTH_GLOBAL] = defaultScope.synthJSON;

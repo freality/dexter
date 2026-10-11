@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,7 +23,21 @@ type fakeBundler struct {
 	err    error
 }
 
-func (f *fakeBundler) Bundle(string) (string, error) { return f.script, f.err }
+func (f *fakeBundler) Bundle(string, []string) (string, error) { return f.script, f.err }
+
+// entryDir is a project dir containing dex.config.ts so the real Discover
+// inside Synth passes; the bundler and evaluator underneath stay faked.
+// Discover only stats the file, so one shared dir serves every test.
+var entryDir = func() string {
+	dir, err := os.MkdirTemp("", "dex-engine-test")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "dex.config.ts"), nil, 0o644); err != nil {
+		panic(err)
+	}
+	return dir
+}()
 
 type fakeEvaluator struct {
 	data []byte
@@ -124,7 +140,7 @@ func TestEnginePlanSuccess(t *testing.T) {
 		Store: &fakeStore{st: state.New()},
 	})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -137,7 +153,7 @@ func TestEnginePlanSynthError(t *testing.T) {
 	boom := errors.New("synth boom")
 	e := New(Options{Synth: failingSynth(boom), Store: &fakeStore{st: state.New()}})
 
-	_, err := e.Plan(context.Background(), "entry.ts")
+	_, err := e.Plan(context.Background(), entryDir)
 	if !errors.Is(err, boom) {
 		t.Fatalf("Plan() error = %v, want %v", err, boom)
 	}
@@ -148,7 +164,7 @@ func TestEnginePlanStoreLoadError(t *testing.T) {
 	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{}}
 	e := New(Options{Synth: fakeSynth(t, doc), Store: &fakeStore{loadErr: boom}})
 
-	_, err := e.Plan(context.Background(), "entry.ts")
+	_, err := e.Plan(context.Background(), entryDir)
 	if !errors.Is(err, boom) {
 		t.Fatalf("Plan() error = %v, want %v", err, boom)
 	}
@@ -160,7 +176,7 @@ func TestEnginePlanParseError(t *testing.T) {
 	synth := jsenv.NewSynthesizer(&fakeBundler{script: "ok"}, &fakeEvaluator{data: []byte("not json")})
 	e := New(Options{Synth: synth, Store: &fakeStore{st: state.New()}})
 
-	_, err := e.Plan(context.Background(), "entry.ts")
+	_, err := e.Plan(context.Background(), entryDir)
 	if err == nil || !strings.Contains(err.Error(), "parse IR:") {
 		t.Fatalf("Plan() error = %v, want wrapped parse error", err)
 	}
@@ -194,7 +210,7 @@ func TestEngineApplyFullLifecycle(t *testing.T) {
 		Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: registry, Out: &out,
 	})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -249,7 +265,7 @@ func TestEngineApplyEmptyPlanDoesNotSave(t *testing.T) {
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry()})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -273,7 +289,7 @@ func TestEngineApplyLockAcquireFailure(t *testing.T) {
 	locker := &fakeLocker{acquireErr: boom}
 	e := New(Options{Synth: fakeSynth(t, &ir.Document{Project: "p"}), Store: &fakeStore{st: state.New()}, Lock: locker, Registry: NewRegistry()})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -298,7 +314,7 @@ func TestEngineApplyStaleStateRejected(t *testing.T) {
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry()})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -341,7 +357,7 @@ func TestEngineApplyUpdateErrorAborts(t *testing.T) {
 	store := &fakeStore{st: current}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: registry})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -369,7 +385,7 @@ func TestEngineApplyDeleteErrorAborts(t *testing.T) {
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: current}, Lock: locker, Registry: registry})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -390,7 +406,7 @@ func TestEngineApplyRegistryMiss(t *testing.T) {
 	store := &fakeStore{st: state.New()}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry()})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -434,7 +450,7 @@ func TestEngineApplyAdapterErrorPersistsEarlierChange(t *testing.T) {
 		},
 	}
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -468,7 +484,7 @@ func TestEngineApplyJoinsSaveErrorWithAdapterError(t *testing.T) {
 	registry.Register("docker", &fakeAdapter{createErr: createErr})
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New(), saveErr: saveErr}, Lock: &fakeLocker{}, Registry: registry})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -488,7 +504,7 @@ func TestEngineApplyStoreSaveError(t *testing.T) {
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New(), saveErr: boom}, Lock: locker, Registry: registry})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -507,7 +523,7 @@ func TestEngineApplyLockReleaseErrorJoined(t *testing.T) {
 	locker := &fakeLocker{releaseErr: releaseErr}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New()}, Lock: locker, Registry: NewRegistry()})
 
-	plan, err := e.Plan(context.Background(), "entry.ts")
+	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -527,5 +543,219 @@ func (p adapterFunc) Create(ctx context.Context, name string, r ir.Resource) (ma
 }
 func (adapterFunc) Update(context.Context, string, ir.Resource, state.Resource) (map[string]any, error) {
 	return nil, nil
+}
+
+// --- Plan key/hash errors ---------------------------------------------------
+
+// TestEnginePlanKeyError covers Plan's loadOrCreateKey failure: a read-only dir.
+func TestEnginePlanKeyError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "dex.config.ts"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Make the dir read-only so MkdirAll inside loadOrCreateKey fails.
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) }) // so TempDir cleanup works
+
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{}}
+	e := New(Options{
+		Synth: fakeSynth(t, doc),
+		Store: &fakeStore{st: state.New()},
+	})
+
+	_, err := e.Plan(context.Background(), dir)
+	if err == nil || !strings.HasPrefix(err.Error(), "secret key:") {
+		t.Fatalf("Plan() error = %v, want 'secret key:' prefix", err)
+	}
+}
+
+func TestEnginePlanHashError(t *testing.T) {
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{
+			"env": map[string]any{"PASSWORD": map[string]any{
+				"$dex_type": "secret", "provider": "env", "key": "DB_PWD",
+			}},
+		}, DependsOn: []string{}},
+	}}
+	e := New(Options{
+		Synth: fakeSynth(t, doc),
+		Store: &fakeStore{st: state.New()},
+		// Env deliberately missing DB_PWD so hashSecrets in Plan fails.
+		Env: map[string]string{"OTHER": "x"},
+	})
+
+	_, err := e.Plan(context.Background(), entryDir)
+	if err == nil {
+		t.Fatal("Plan() error = nil, want hash error")
+	}
+	if !strings.Contains(err.Error(), `resource "a"`) || !strings.Contains(err.Error(), `secret "DB_PWD" is not set`) {
+		t.Fatalf("Plan() error = %v, want resource+key naming", err)
+	}
+}
+
+// --- Apply key error ---------------------------------------------------------
+
+// TestEngineApplyKeyError covers loadOrCreateKey failure in Apply.
+func TestEngineApplyKeyError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "dex.config.ts"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Plan succeeds: no secrets needed.
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
+	}}
+	registry := NewRegistry()
+	registry.Register("docker", &fakeAdapter{})
+	store := &fakeStore{st: state.New()}
+	locker := &fakeLocker{}
+	e := New(Options{Synth: fakeSynth(t, doc), Store: store, Lock: locker, Registry: registry})
+
+	plan, err := e.Plan(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+
+	// Delete the key so Apply must recreate it; make .dex read-only so WriteFile fails.
+	keyPath := filepath.Join(dir, ".dex", "secret.key")
+	if err = os.Remove(keyPath); err != nil {
+		t.Fatal(err)
+	}
+	dexDir := filepath.Join(dir, ".dex")
+	if err = os.Chmod(dexDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dexDir, 0o755) })
+
+	// A fresh engine for Apply; can't write to .dex/ so key creation fails.
+	e2 := New(Options{
+		Synth:    failingSynth(errors.New("unused")),
+		Store:    store,
+		Lock:     &fakeLocker{},
+		Registry: registry,
+	})
+
+	_, err = e2.Apply(context.Background(), plan)
+	if err == nil || !strings.HasPrefix(err.Error(), "secret key:") {
+		t.Fatalf("Apply() error = %v, want 'secret key:' prefix", err)
+	}
+}
+
+// --- applyChange resolve errors ---------------------------------------------
+
+// TestEngineApplyCreateResolveError: Create change with a secret token whose env
+// key is missing. Plan succeeds (env has the key during Plan).
+func TestEngineApplyCreateResolveError(t *testing.T) {
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{
+			"env": map[string]any{"PASSWORD": map[string]any{
+				"$dex_type": "secret", "provider": "env", "key": "DB_PWD",
+			}},
+		}, DependsOn: []string{}},
+	}}
+	registry := NewRegistry()
+	registry.Register("docker", &fakeAdapter{})
+	store := &fakeStore{st: state.New()}
+	locker := &fakeLocker{}
+
+	// Plan with env containing the key so hashSecrets succeeds.
+	engine1 := New(Options{
+		Synth:    fakeSynth(t, doc),
+		Store:    store,
+		Lock:     locker,
+		Registry: registry,
+		Env:      map[string]string{"DB_PWD": "secret"},
+	})
+	plan, err := engine1.Plan(context.Background(), entryDir)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+
+	// Apply with env missing the key.
+	engine2 := New(Options{
+		Synth:    failingSynth(errors.New("unused")),
+		Store:    store,
+		Lock:     &fakeLocker{},
+		Registry: registry,
+		Env:      map[string]string{},
+	})
+	_, err = engine2.Apply(context.Background(), plan)
+	if err == nil || !strings.HasPrefix(err.Error(), "create a:") {
+		t.Fatalf("Apply() error = %v, want 'create a:' prefix", err)
+	}
+	if !strings.Contains(err.Error(), `secret "DB_PWD" is not set`) {
+		t.Fatalf("Apply() error = %v, want missing key error", err)
+	}
+}
+
+// TestEngineApplyUpdateResolveError: Update change with a secret token whose env
+// key is missing in desired side. Plan has the key; env loses it for Apply.
+func TestEngineApplyUpdateResolveError(t *testing.T) {
+	current := state.New()
+	current.Project = "p"
+	current.Resources["a"] = state.Resource{Type: "container", Plugin: "docker", Properties: map[string]any{"image": "v1"}}
+
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{
+			"image": "v2",
+			"env": map[string]any{"PASSWORD": map[string]any{
+				"$dex_type": "secret", "provider": "env", "key": "DB_PWD",
+			}},
+		}, DependsOn: []string{}},
+	}}
+	registry := NewRegistry()
+	registry.Register("docker", &fakeAdapter{})
+	store := &fakeStore{st: current}
+	locker := &fakeLocker{}
+
+	// Plan with env containing the key so hashSecrets succeeds.
+	engine1 := New(Options{
+		Synth:    fakeSynth(t, doc),
+		Store:    store,
+		Lock:     locker,
+		Registry: registry,
+		Env:      map[string]string{"DB_PWD": "secret"},
+	})
+	plan, err := engine1.Plan(context.Background(), entryDir)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+
+	// Apply with env missing the key — resolveSecrets fails on desired side.
+	engine2 := New(Options{
+		Synth:    failingSynth(errors.New("unused")),
+		Store:    store,
+		Lock:     &fakeLocker{},
+		Registry: registry,
+		Env:      map[string]string{},
+	})
+	_, err = engine2.Apply(context.Background(), plan)
+	if err == nil || !strings.HasPrefix(err.Error(), "update a:") {
+		t.Fatalf("Apply() error = %v, want 'update a:' prefix", err)
+	}
+	if !strings.Contains(err.Error(), `secret "DB_PWD" is not set`) {
+		t.Fatalf("Apply() error = %v, want missing key error", err)
+	}
+}
+
+// TestEnginePlanCycleError verifies that a cycle in the dependency graph fails
+// Plan with a diff.Compute error, covering the `return nil, err` after diff.Compute.
+func TestEnginePlanCycleError(t *testing.T) {
+	// IR validation does not catch cycles (only self-dependencies), so a
+	// cycle A→B→A passes Parse but fails diff.Compute's DAG sort.
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{"b"}},
+		"b": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{"a"}},
+	}}
+	e := New(Options{
+		Synth: fakeSynth(t, doc),
+		Store: &fakeStore{st: state.New()},
+	})
+	_, err := e.Plan(context.Background(), entryDir)
+	if err == nil || (!strings.Contains(err.Error(), "dependency") && !strings.Contains(err.Error(), "cycle")) {
+		t.Fatalf("Plan() error = %v, want cycle/dependency graph error", err)
+	}
 }
 func (adapterFunc) Delete(context.Context, string, state.Resource) error { return nil }

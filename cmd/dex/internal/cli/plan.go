@@ -7,15 +7,11 @@ func newPlanCmd(dir *string, d deps) *cobra.Command {
 		Use:   "plan",
 		Short: "Show pending infrastructure changes",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			entry, err := entrypointPath(*dir)
-			if err != nil {
-				return err
-			}
 			e, err := d.newEngine(*dir)
 			if err != nil {
 				return err
 			}
-			plan, err := e.Plan(cmd.Context(), entry)
+			plan, err := e.Plan(cmd.Context(), *dir)
 			if err != nil {
 				return err
 			}

@@ -32,3 +32,8 @@ export interface ResourceSpec {
   properties: Record<string, IRValue>;
   dependsOn?: readonly (ResourceNode | string)[];
 }
+export interface SecretRef {
+  readonly $dex_type: "secret";
+  readonly provider: "env";
+  readonly key: string;
+}

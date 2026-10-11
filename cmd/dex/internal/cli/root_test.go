@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -60,28 +61,6 @@ func TestEnvMap(t *testing.T) {
 	}
 }
 
-func TestEntrypointPathMissing(t *testing.T) {
-	dir := t.TempDir()
-	_, err := entrypointPath(dir)
-	if err == nil || !strings.Contains(err.Error(), "run `dex init`") {
-		t.Fatalf("entrypointPath() error = %v", err)
-	}
-}
-
-func TestEntrypointPathPresent(t *testing.T) {
-	dir := t.TempDir()
-	if err := runInit(&bytes.Buffer{}, dir); err != nil {
-		t.Fatal(err)
-	}
-	path, err := entrypointPath(dir)
-	if err != nil {
-		t.Fatalf("entrypointPath() error = %v", err)
-	}
-	if !strings.HasSuffix(path, "dex.config.ts") {
-		t.Fatalf("entrypointPath() = %q", path)
-	}
-}
-
 // TestMainInitThenPlanEndToEnd drives the real production engine factory
 // (esbuild + goja + the embedded SDK), not a fake, so newProductionEngine
 // is exercised end to end.
@@ -103,5 +82,18 @@ func TestMainInitThenPlanEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Plan: 1 to add, 0 to change, 0 to destroy.") {
 		t.Fatalf("plan out = %q", out.String())
+	}
+}
+
+// TestNewProductionEngineMalformedDotEnv covers the loadEnv error path in
+// newProductionEngine: a .env with a malformed line (no '=') must fail.
+func TestNewProductionEngineMalformedDotEnv(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/.env", []byte("GOOD=1\nBADLINE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := newProductionEngine(dir); err == nil {
+		t.Fatal("newProductionEngine() = nil error, want error from malformed .env")
 	}
 }

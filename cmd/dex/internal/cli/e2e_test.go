@@ -36,17 +36,24 @@ func newE2EProject(t *testing.T) *e2eProject {
 	return p
 }
 
-// config rewrites dex.config.ts; each service maps a name to its property
-// object literal (TypeScript source).
+// config rewrites dex.config.ts and writes one dex/services/<name>.ts file
+// per service; each service maps a name to its property object literal
+// (TypeScript source).
 func (p *e2eProject) config(services map[string]string) {
 	p.t.Helper()
-	var b strings.Builder
-	b.WriteString("import { defineDexConfig, service } from \"@dex/iac\";\n\ndefineDexConfig({ project: \"e2e\" });\n")
-	for name, props := range services {
-		fmt.Fprintf(&b, "\nservice(%q, { plugin: \"docker\", properties: %s });\n", name, props)
-	}
-	if err := os.WriteFile(filepath.Join(p.dir, "dex.config.ts"), []byte(b.String()), 0o644); err != nil {
+	config := "import { defineDexConfig } from \"@dex/iac\";\n\ndefineDexConfig({ project: \"e2e\" });\n"
+	if err := os.WriteFile(filepath.Join(p.dir, "dex.config.ts"), []byte(config), 0o644); err != nil {
 		p.t.Fatal(err)
+	}
+	servicesDir := filepath.Join(p.dir, "dex", "services")
+	if err := os.MkdirAll(servicesDir, 0o755); err != nil {
+		p.t.Fatal(err)
+	}
+	for name, props := range services {
+		body := fmt.Sprintf("import { service } from \"@dex/iac\";\n\nservice(%q, { plugin: \"docker\", properties: %s });\n", name, props)
+		if err := os.WriteFile(filepath.Join(servicesDir, name+".ts"), []byte(body), 0o644); err != nil {
+			p.t.Fatal(err)
+		}
 	}
 }
 

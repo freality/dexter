@@ -57,33 +57,41 @@ func New(o Options) *Engine {
 	}
 }
 
-// Plan synthesizes entrypoint and diffs it against stored state. Read-only:
-// no lock is taken.
-func (e *Engine) Plan(ctx context.Context, entrypoint string) (*diff.Plan, error) {
-	data, err := e.synth.Synth(ctx, entrypoint, e.env)
+// Plan synthesizes dir's config (dex.config.ts plus dex/services/**) and
+// diffs it against stored state. Read-only: no lock is taken.
+func (e *Engine) Plan(ctx context.Context, dir string) (*diff.Plan, error) {
+	data, err := e.synth.Synth(ctx, dir, e.env)
 	if err != nil {
 		return nil, fmt.Errorf("synthesize: %w", err)
 	}
-	// ir.Parse already wraps its own JSON-decode failures and returns a
-	// self-describing *ValidationError otherwise; nothing to add here.
 	desired, err := ir.Parse(data)
 	if err != nil {
 		return nil, err
 	}
+
+	key, err := loadOrCreateKey(dir)
+	if err != nil {
+		return nil, fmt.Errorf("secret key: %w", err)
+	}
+	if err = hashSecrets(desired, e.env, key); err != nil {
+		return nil, err
+	}
+
 	current, err := e.store.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load state: %w", err)
 	}
-	return diff.Compute(desired, current)
+	plan, err := diff.Compute(desired, current)
+	if err != nil {
+		return nil, err
+	}
+	plan.Dir = dir
+	return plan, nil
 }
 
 // Apply executes a Plan previously returned by Plan, persisting state after
 // every change attempt (a failed create/update saves the resource tainted)
-// so a mid-run failure leaves truthful state. It
-// never re-synthesizes or re-diffs: the plan a caller confirmed is the plan
-// that runs. If state moved since Plan computed it (another dex process, a
-// manual edit), Apply fails rather than silently applying stale changes
-// against resources it never diffed.
+// so a mid-run failure leaves truthful state.
 func (e *Engine) Apply(ctx context.Context, plan *diff.Plan) (_ *diff.Plan, err error) {
 	if err = e.lock.Acquire(); err != nil {
 		return nil, fmt.Errorf("acquire lock: %w", err)
@@ -93,6 +101,11 @@ func (e *Engine) Apply(ctx context.Context, plan *diff.Plan) (_ *diff.Plan, err 
 			err = errors.Join(err, relErr)
 		}
 	}()
+
+	key, err := loadOrCreateKey(plan.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("secret key: %w", err)
+	}
 
 	st, err := e.store.Load()
 	if err != nil {
@@ -107,9 +120,7 @@ func (e *Engine) Apply(ctx context.Context, plan *diff.Plan) (_ *diff.Plan, err 
 	st.Project = plan.Project
 
 	for _, change := range plan.Changes {
-		// Save after every attempt, failed ones too: a failure may have
-		// tainted the resource, and state must say so.
-		applyErr := e.applyChange(ctx, st, change)
+		applyErr := e.applyChange(ctx, st, change, key)
 		if applyErr == nil {
 			fmt.Fprintf(e.out, "%s: done\n", change.Name)
 		}
@@ -124,26 +135,50 @@ func (e *Engine) Apply(ctx context.Context, plan *diff.Plan) (_ *diff.Plan, err 
 }
 
 // applyChange runs one change against its adapter and updates st in place.
-// A failed create or update records the resource as tainted: the adapter may
-// have changed the target part-way, so the next plan replaces it.
-func (e *Engine) applyChange(ctx context.Context, st *state.State, change diff.Change) error {
+func (e *Engine) applyChange(ctx context.Context, st *state.State, change diff.Change, key []byte) error {
 	adapter, err := e.registry.Get(change.Plugin)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
 	}
 
 	var outputs map[string]any
+	var resolvedDesired map[string]any
+	var resolvedCurrent map[string]any
+
 	switch change.Action {
 	case diff.ActionCreate:
-		outputs, err = adapter.Create(ctx, change.Name, *change.Desired)
+		resolvedDesired, err = resolveSecrets(change.Desired.Properties, e.env, key)
+		if err != nil {
+			return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
+		}
+		desiredCopy := *change.Desired
+		desiredCopy.Properties = resolvedDesired
+		outputs, err = adapter.Create(ctx, change.Name, desiredCopy)
 	case diff.ActionUpdate:
-		outputs, err = adapter.Update(ctx, change.Name, *change.Desired, *change.Current)
+		resolvedDesired, err = resolveSecrets(change.Desired.Properties, e.env, key)
+		if err != nil {
+			return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
+		}
+		resolvedCurrent, _ = resolveSecretsWithCurrent(change.Current.Properties, e.env, key)
+		desiredCopy := *change.Desired
+		desiredCopy.Properties = resolvedDesired
+		currentCopy := *change.Current
+		currentCopy.Properties = resolvedCurrent
+		outputs, err = adapter.Update(ctx, change.Name, desiredCopy, currentCopy)
 	case diff.ActionDelete:
 		if err = adapter.Delete(ctx, change.Name, *change.Current); err != nil {
 			return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
 		}
 		delete(st.Resources, change.Name)
 		return nil
+	}
+
+	// Leak guard: check that adapter outputs don't contain any resolved secret values.
+	if err == nil && outputs != nil {
+		resolvedAll := collectSecrets(change.Desired.Properties, e.env)
+		if le := checkLeak(outputs, resolvedAll); le != nil {
+			return fmt.Errorf("%s %s: %w", change.Action, change.Name, le)
+		}
 	}
 
 	st.Resources[change.Name] = state.Resource{
@@ -155,4 +190,37 @@ func (e *Engine) applyChange(ctx context.Context, st *state.State, change diff.C
 		return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
 	}
 	return nil
+}
+
+// collectSecrets walks props for secret tokens and returns a map of env key
+// to plaintext for every token found. Used by the leak guard.
+func collectSecrets(props map[string]any, env map[string]string) map[string]string {
+	out := map[string]string{}
+	collectSecretsWalk(props, env, out)
+	return out
+}
+
+func collectSecretsWalk(props map[string]any, env map[string]string, out map[string]string) {
+	// Check if props itself is a secret token.
+	if t, _ := props["$dex_type"].(string); t == "secret" {
+		if key, _ := props["key"].(string); key != "" {
+			if pt, inEnv := env[key]; inEnv {
+				out[key] = pt
+			}
+		}
+		return
+	}
+
+	for _, v := range props {
+		switch val := v.(type) {
+		case map[string]any:
+			collectSecretsWalk(val, env, out)
+		case []any:
+			for _, item := range val {
+				if m, ok := item.(map[string]any); ok {
+					collectSecretsWalk(m, env, out)
+				}
+			}
+		}
+	}
 }

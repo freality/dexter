@@ -15,7 +15,7 @@ type fakeBundler struct {
 	err    error
 }
 
-func (f *fakeBundler) Bundle(string) (string, error) { return f.script, f.err }
+func (f *fakeBundler) Bundle(string, []string) (string, error) { return f.script, f.err }
 
 type fakeEvaluator struct {
 	data []byte

@@ -2,16 +2,18 @@ package jsenv
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/evanw/esbuild/pkg/api"
 
 	"github.com/freality/dexter/pkg/jsenv/sdk"
 )
 
-// Bundler transpiles and bundles a TypeScript entrypoint into a single
-// script runnable by an Evaluator.
+// Bundler transpiles and bundles a project's TypeScript entry files into a
+// single script runnable by an Evaluator.
 type Bundler interface {
-	Bundle(entrypoint string) (string, error)
+	Bundle(dir string, files []string) (string, error)
 }
 
 // EsbuildBundler bundles with esbuild, resolving the bare "@dex/iac"
@@ -23,27 +25,39 @@ func NewEsbuildBundler() *EsbuildBundler {
 	return &EsbuildBundler{}
 }
 
-// Bundle transpiles and bundles entrypoint into a single IIFE script. Any
-// bare import other than "@dex/iac" stays unresolvable and surfaces as an
-// esbuild error — correct, since no package manager exists on the user
-// machine.
-func (b *EsbuildBundler) Bundle(entrypoint string) (string, error) {
+// Bundle transpiles and bundles files (slash paths relative to dir) into a
+// single IIFE script. Any bare import other than "@dex/iac" stays
+// unresolvable and surfaces as an esbuild error — correct, since no package
+// manager exists on the user machine.
+func (b *EsbuildBundler) Bundle(dir string, files []string) (string, error) {
+	// A virtual "dex:entry" module that imports every discovered file; each
+	// file is a module, so they evaluate once and share the SDK singleton
+	// registry (D2).
+	var entry strings.Builder
+	for _, f := range files {
+		fmt.Fprintf(&entry, "import %s;\n", strconv.Quote("./"+f))
+	}
 	result := api.Build(api.BuildOptions{
-		EntryPoints: []string{entrypoint},
-		Bundle:      true,
-		Write:       false,
-		Format:      api.FormatIIFE,
-		GlobalName:  "__dex_entry",
-		Platform:    api.PlatformNeutral,
-		Target:      api.ES2017,
-		Plugins:     []api.Plugin{sdkPlugin()},
+		Stdin: &api.StdinOptions{
+			Contents:   entry.String(),
+			ResolveDir: dir,
+			Sourcefile: "dex:entry",
+			Loader:     api.LoaderTS,
+		},
+		Bundle:     true,
+		Write:      false,
+		Format:     api.FormatIIFE,
+		GlobalName: "__dex_entry",
+		Platform:   api.PlatformNeutral,
+		Target:     api.ES2017,
+		Plugins:    []api.Plugin{sdkPlugin()},
 	})
 	if len(result.Errors) > 0 {
 		msg := result.Errors[0].Text
 		if loc := result.Errors[0].Location; loc != nil {
 			msg = fmt.Sprintf("%s:%d: %s", loc.File, loc.Line, msg)
 		}
-		return "", fmt.Errorf("bundle %s: %s", entrypoint, msg)
+		return "", fmt.Errorf("bundle: %s", msg)
 	}
 	return string(result.OutputFiles[0].Contents), nil
 }

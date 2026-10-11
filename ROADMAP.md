@@ -23,8 +23,8 @@ This document outlines the phased development plan for `dex`. It serves as a che
 **Goal:** Make the tool usable for real-world, complex homelabs by supporting modular files, secrets, and third-party plugins.
 
 *   **Modular Architecture**
-    *   [ ] Auto-Discovery: Update the Go engine to glob `dex/services/**/*.ts`.
-    *   [ ] Virtual Entrypoint: Generate an in-memory entrypoint for `esbuild` to support cross-file imports natively.
+    *   [x] Auto-Discovery: Update the Go engine to glob `dex/services/**/*.ts`.
+    *   [x] Virtual Entrypoint: Generate an in-memory entrypoint for `esbuild` to support cross-file imports natively.
 *   **The Plugin Ecosystem**
     *   [ ] gRPC Architecture: Implement `hashicorp/go-plugin` in the Go core.
     *   [ ] Extracted Docker Adapter: Move the MVP Docker adapter into a standalone binary (`dex-adapter-docker`).

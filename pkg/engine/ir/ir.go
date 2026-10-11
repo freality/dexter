@@ -44,6 +44,48 @@ func (e *ValidationError) Error() string {
 	return "invalid IR: " + e.Field + ": " + e.Reason
 }
 
+// validateProperties recursively walks props looking for $dex_type token maps.
+// A token must be exactly {"$dex_type": "secret", "provider": "env", "key": <non-empty string>}
+// with no extra keys. Any deviation is reported as a *ValidationError at path.
+func validateProperties(props map[string]any, path string) *ValidationError {
+	if _, ok := props["$dex_type"]; ok {
+		// This is a secret token map. Validate its shape exactly.
+		const wantFields = 3
+		if len(props) != wantFields {
+			return &ValidationError{Field: path, Reason: fmt.Sprintf("secret token must have exactly %d fields ($dex_type, provider, key)", wantFields)}
+		}
+		if dt, _ := props["$dex_type"].(string); dt != "secret" {
+			return &ValidationError{Field: path + ".$dex_type", Reason: `must be "secret"`}
+		}
+		if p, _ := props["provider"].(string); p != "env" {
+			return &ValidationError{Field: path + ".provider", Reason: `must be "env"`}
+		}
+		key, _ := props["key"].(string)
+		if key == "" {
+			return &ValidationError{Field: path + ".key", Reason: "must be a non-empty string"}
+		}
+		return nil
+	}
+	for k, v := range props {
+		childPath := path + "." + k
+		switch val := v.(type) {
+		case map[string]any:
+			if ve := validateProperties(val, childPath); ve != nil {
+				return ve
+			}
+		case []any:
+			for i, item := range val {
+				if m, ok := item.(map[string]any); ok {
+					if ve := validateProperties(m, fmt.Sprintf("%s[%d]", childPath, i)); ve != nil {
+						return ve
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // Parse decodes IR JSON and validates it.
 func Parse(data []byte) (*Document, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -99,6 +141,9 @@ func (d *Document) Validate() error {
 			r.DependsOn = []string{}
 		}
 		d.Resources[name] = r
+		if ve := validateProperties(r.Properties, fmt.Sprintf("resources[%q].properties", name)); ve != nil {
+			return ve
+		}
 	}
 	return nil
 }

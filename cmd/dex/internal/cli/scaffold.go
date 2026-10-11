@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 )
 
-const configTemplate = `import { defineDexConfig, env, service } from "@dex/iac";
+const configTemplate = `import { defineDexConfig } from "@dex/iac";
 
 defineDexConfig({ project: "homelab" });
+`
+
+const whoamiTemplate = `import { env, service } from "@dex/iac";
 
 service("whoami", {
   plugin: "docker",
@@ -44,14 +47,15 @@ func runInit(w io.Writer, dir string) error {
 	}
 	fmt.Fprintln(w, "created .env")
 
-	gitkeepPath := filepath.Join(dir, "dex", "services", ".gitkeep")
-	if err := os.MkdirAll(filepath.Dir(gitkeepPath), 0o755); err != nil {
-		return fmt.Errorf("create %s: %w", filepath.Dir(gitkeepPath), err)
+	servicesPath := filepath.Join(dir, "dex", "services")
+	if err := os.MkdirAll(servicesPath, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", servicesPath, err)
 	}
-	if err := writeScaffoldFile(gitkeepPath, ""); err != nil {
+	whoamiPath := filepath.Join(servicesPath, "whoami.ts")
+	if err := writeScaffoldFile(whoamiPath, whoamiTemplate); err != nil {
 		return err
 	}
-	fmt.Fprintln(w, "created dex/services/.gitkeep")
+	fmt.Fprintln(w, "created dex/services/whoami.ts")
 
 	fmt.Fprintln(w, "add .dex/ to your .gitignore")
 

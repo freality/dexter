@@ -83,6 +83,22 @@ If a create or update fails (including a container that exits right after starti
 
 The adapter lives in its own Go workspace module, `adapters/docker`. `task check` covers it with fakes; `go test -tags docker ./adapters/docker/... ./cmd/dex/...` runs the adapter and the full `dex` CLI against a real daemon.
 
+## 🔐 Secrets
+
+Secrets are declared in resource properties with `secret("KEY")`; the engine resolved the value at apply time from your project's `.env` file (or the host environment, following the same lookup order as `env()`). The SDK emits a `{"$dex_type": "secret", "provider": "env", "key": "KEY"}` token, so **plaintext never enters the IR or `state.json`** — only that token and a keyed hash of the value.
+
+```typescript
+properties: {
+  env: {
+    POSTGRES_PASSWORD: secret("DB_PASSWORD") // resolves from .env at apply time
+  }
+}
+```
+
+The hash is HMAC-SHA256 keyed by a random per-project key at `.dex/secret.key`, generated on first use and gitignored along with the rest of `.dex/` — see [ADR-0002](docs/adr/0002-hmac-secret-hashing.md) for why it is keyed rather than plain SHA-256. The hash exists only so `dex plan` can detect drift; it is never reversible to the plaintext.
+
+Losing `.dex/secret.key` is harmless: the next `dex plan` treats every secret as changed, `dex apply` re-sends the same `.env` values through the normal update path, and a fresh key is written.
+
 ## 📂 Project Structure
 
 A typical Dexter project looks like this:

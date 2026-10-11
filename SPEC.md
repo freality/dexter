@@ -40,7 +40,7 @@ When a user initializes `dex`, the CLI expects and manages the following structu
 ```text
 user-project/
 ├── dex.config.ts          # CLI config, state backend, and plugin setup
-├── .env                   # Local secrets (never serialized to IR)
+├── .env                   # Local secrets: reach IR only via env()/secret(); tokens never carry plaintext into IR or state
 ├── dex/
 │   └── services/          # Auto-discovered TS files (the infrastructure)
 └── .dex/                  # CLI cache (Added to .gitignore)
@@ -145,4 +145,4 @@ message ApplyResponse {
 *   **Go Code:** Strictly avoid CGO. Use standard library `context` for all cancellations. Keep the CLI stateless; all state is passed in or read from `.dex/state.json`.
 *   **TS Code:** Ensure the `@dex/iac` SDK has zero Node.js dependencies (`fs`, `path`, etc.) so it can run purely in the `goja` ECMAScript environment. 
 *   **Error Handling:** All Go errors must wrap context (`fmt.Errorf("failed to parse: %w", err)`).
-*   **Secrets:** When handling a `{"$dex_type": "secret"}` token, the Go engine must resolve it from the host `.env` AT RUNTIME and inject it directly into the gRPC `ApplyRequest`. Do not write it to the state file. Hash it (SHA-256) for state comparisons.
+*   **Secrets:** When handling a `{"$dex_type": "secret"}` token, the Go engine must resolve it from the host `.env` AT RUNTIME and inject it directly into the gRPC `ApplyRequest`. Do not write it to the state file. Hash it (HMAC-SHA256 keyed by per-project `.dex/secret.key`, per ADR-0002) for state comparisons.
