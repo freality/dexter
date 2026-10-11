@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -15,18 +14,6 @@ import (
 )
 
 // --- helpers ----------------------------------------------------------------
-
-func resolveOne(plugin string, a Adapter) func(string) (Adapter, error) {
-	return func(p string) (Adapter, error) {
-		if p != plugin {
-			return nil, fmt.Errorf("no adapter registered for plugin %q", p)
-		}
-		return a, nil
-	}
-}
-
-// --- Secrets integration tests ------------------------------------------------
-
 func TestEnginePlanMissingSecretKeyInEnv(t *testing.T) {
 	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"svc": {Type: "container", Plugin: "docker", Properties: map[string]any{

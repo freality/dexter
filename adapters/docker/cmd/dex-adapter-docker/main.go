@@ -13,5 +13,5 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	plugin.Serve(docker.Plugin{a: adapter})
+	plugin.Serve(docker.NewPlugin(adapter))
 }

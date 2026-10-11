@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -29,7 +30,7 @@ type deps struct {
 // adapter subprocesses get cleaned up, then defer cleanup of all plugin
 // clients.
 func Main(args []string, in io.Reader, out, errOut io.Writer) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer CleanupClients()
 
 	root := newRootCmd(productionDeps())

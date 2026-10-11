@@ -18,17 +18,6 @@ import (
 )
 
 // --- helpers ----------------------------------------------------------------
-
-// resolveOne returns a resolve func that serves a single named adapter.
-func resolveOne(plugin string, a Adapter) func(string) (Adapter, error) {
-	return func(p string) (Adapter, error) {
-		if p != plugin {
-			return nil, fmt.Errorf("no adapter registered for plugin %q", p)
-		}
-		return a, nil
-	}
-}
-
 // resolveNone returns a resolve func that always fails.
 func resolveNone() func(string) (Adapter, error) {
 	return func(plugin string) (Adapter, error) {
@@ -298,8 +287,7 @@ func TestEngineApplyCreateEventSequence(t *testing.T) {
 	desired := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
 	}}
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{}))
 	locker := &fakeLocker{}
 	store := &fakeStore{st: state.New()}
 	var events []Event
@@ -334,8 +322,7 @@ func TestEngineApplyUpdateFailureEmitsFailed(t *testing.T) {
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{"image": "v2"}, DependsOn: []string{}},
 	}}
 	boom := errors.New("update boom")
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{updateErr: boom})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{updateErr: boom}))
 	locker := &fakeLocker{}
 	var events []Event
 	e := New(Options{
@@ -366,14 +353,13 @@ func TestEngineApplyAdapterLogPassthrough(t *testing.T) {
 	desired := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
 	}}
-	registry := NewRegistry()
-	registry.Register("docker", adapterFunc{
+	registry := NewRegistry(resolveOne("docker", adapterFunc{
 		create: func(_ context.Context, _ string, _ ir.Resource, report func(Event)) (map[string]any, error) {
 			report(Event{Kind: EventLog, Message: "pulling image"})
 			report(Event{Kind: EventProgress, Percent: 42})
 			return nil, nil
 		},
-	})
+	}))
 	locker := &fakeLocker{}
 	var events []Event
 	e := New(Options{

@@ -13,7 +13,6 @@ import (
 	"sync"
 
 	"github.com/freality/dexter/pkg/engine"
-	"github.com/freality/dexter/pkg/engine/diff"
 	"github.com/freality/dexter/pkg/engine/ir"
 	"github.com/freality/dexter/pkg/engine/state"
 	"github.com/freality/dexter/pkg/plugin"
@@ -58,14 +57,15 @@ func resolvePlugin(dir string) func(plugin string) (engine.Adapter, error) {
 	return func(plugin string) (engine.Adapter, error) {
 		// Try the project-local plugins directory first.
 		localPath := filepath.Join(dir, ".dex", "plugins", "dex-adapter-"+plugin)
-		if exec.Access(localPath, exec.X_OK) == nil {
+		_, lookErr := exec.LookPath(localPath)
+		if lookErr == nil {
 			return openAdapter(localPath, plugin)
 		}
 
 		// Fall back to PATH.
 		bin := "dex-adapter-" + plugin
-		path, err := exec.LookPath(bin)
-		if err == nil {
+		path, lookErr := exec.LookPath(bin)
+		if lookErr == nil {
 			return openAdapter(path, plugin)
 		}
 
