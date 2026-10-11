@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/freality/dexter/pkg/engine"
 	"github.com/freality/dexter/pkg/engine/ir"
 	"github.com/freality/dexter/pkg/engine/state"
 )
@@ -89,5 +90,28 @@ func mustRunInit(t *testing.T, dir string) {
 	t.Helper()
 	if err := runInit(&bytes.Buffer{}, dir); err != nil {
 		t.Fatalf("runInit() error = %v", err)
+	}
+}
+
+// TestPlanNeverCallsResolve: `dex plan` must not start plugin processes (D7).
+func TestPlanNeverCallsResolve(t *testing.T) {
+	dir := t.TempDir()
+	mustRunInit(t, dir)
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"whoami": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
+	}}
+	registry := engine.NewRegistry(func(string) (engine.Adapter, error) {
+		t.Fatal("resolve called during plan")
+		return nil, nil
+	})
+	cmd := newRootCmd(engineDeps(doc, state.New(), registry))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"plan", "--dir", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("plan error = %v", err)
+	}
+	if !strings.Contains(out.String(), "whoami") {
+		t.Fatalf("plan output = %q, want whoami listed", out.String())
 	}
 }
