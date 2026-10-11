@@ -385,6 +385,38 @@ func TestEngineApplyAdapterLogPassthrough(t *testing.T) {
 	}
 }
 
+// TestEngineSetEvents verifies SetEvents swaps the sink that Apply reports
+// through, for a caller (the TUI) that doesn't know its sink until after
+// New. The Engine starts with no sink at all (nil), matching how a CLI
+// command constructs one before deciding TTY vs. plain output.
+func TestEngineSetEvents(t *testing.T) {
+	desired := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
+	}}
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{}))
+	e := New(Options{
+		Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New()}, Lock: &fakeLocker{}, Registry: registry,
+	})
+
+	plan, err := e.Plan(context.Background(), entryDir)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+
+	var events []Event
+	e.SetEvents(func(ev Event) { events = append(events, ev) })
+	if _, err = e.Apply(context.Background(), plan); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	want := []Event{
+		{Name: "a", Action: diff.ActionCreate, Kind: EventStarted},
+		{Name: "a", Action: diff.ActionCreate, Kind: EventDone},
+	}
+	if !reflect.DeepEqual(events, want) {
+		t.Fatalf("events after SetEvents = %+v, want %+v", events, want)
+	}
+}
+
 func TestEngineApplyEmptyPlanDoesNotSave(t *testing.T) {
 	current := state.New()
 	current.Project = "p"
@@ -664,6 +696,7 @@ type adapterFunc struct {
 func (p adapterFunc) Create(ctx context.Context, name string, r ir.Resource, report func(Event)) (map[string]any, error) {
 	return p.create(ctx, name, r, report)
 }
+
 func (adapterFunc) Update(context.Context, string, ir.Resource, state.Resource, func(Event)) (map[string]any, error) {
 	return nil, nil
 }

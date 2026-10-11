@@ -8,6 +8,7 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/freality/dexter/pkg/plugin"
 	"github.com/moby/moby/client"
 )
 
@@ -50,7 +51,7 @@ func New() (*Adapter, error) {
 }
 
 // Create materializes resource name and returns its outputs ({"id": ...}).
-func (a *Adapter) Create(ctx context.Context, name, typ string, props map[string]any) (map[string]any, error) {
+func (a *Adapter) Create(ctx context.Context, name, typ string, props map[string]any, report plugin.Reporter) (map[string]any, error) {
 	if typ != "container" {
 		return nil, fmt.Errorf("docker: unsupported type %q", typ)
 	}
@@ -58,37 +59,37 @@ func (a *Adapter) Create(ctx context.Context, name, typ string, props map[string
 	if err != nil {
 		return nil, err
 	}
-	return a.launch(ctx, name, s)
+	return a.launch(ctx, name, s, report)
 }
 
 // Update moves container name from properties cur to desired. A change to
 // restart alone is applied in place; anything else replaces the container,
 // pulling the new image first so a failed pull leaves the old one running.
-func (a *Adapter) Update(ctx context.Context, name string, desired, cur map[string]any) (map[string]any, error) {
+func (a *Adapter) Update(ctx context.Context, name string, desired, cur map[string]any, report plugin.Reporter) (map[string]any, error) {
 	s, err := parseSpec(desired)
 	if err != nil {
 		return nil, err
 	}
 	if old, err := parseSpec(cur); err == nil && old.sameExceptRestart(s) {
-		return a.updateRestart(ctx, name, s)
+		return a.updateRestart(ctx, name, s, report)
 	}
-	if err := a.ensureImage(ctx, s.Image); err != nil {
+	if err := a.ensureImage(ctx, s.Image, report); err != nil {
 		return nil, err
 	}
 	if _, err := a.removeOwned(ctx, name); err != nil {
 		return nil, err
 	}
-	return a.launch(ctx, name, s)
+	return a.launch(ctx, name, s, report)
 }
 
 // updateRestart changes only the restart policy, keeping the container. If
 // the container was removed by hand it is recreated, so the change cannot
 // fail the same way on every later apply.
-func (a *Adapter) updateRestart(ctx context.Context, name string, s spec) (map[string]any, error) {
+func (a *Adapter) updateRestart(ctx context.Context, name string, s spec, report plugin.Reporter) (map[string]any, error) {
 	policy := s.createOptions(name).HostConfig.RestartPolicy
 	_, err := a.api.ContainerUpdate(ctx, name, client.ContainerUpdateOptions{RestartPolicy: &policy})
 	if cerrdefs.IsNotFound(err) {
-		return a.launch(ctx, name, s)
+		return a.launch(ctx, name, s, report)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("update container %q: %w", name, err)
@@ -108,7 +109,7 @@ func (a *Adapter) Delete(ctx context.Context, name string) error {
 }
 
 // ensureImage pulls ref only when the daemon does not already have it.
-func (a *Adapter) ensureImage(ctx context.Context, ref string) error {
+func (a *Adapter) ensureImage(ctx context.Context, ref string, report plugin.Reporter) error {
 	_, err := a.api.ImageInspect(ctx, ref)
 	if err == nil {
 		return nil
@@ -121,8 +122,36 @@ func (a *Adapter) ensureImage(ctx context.Context, ref string) error {
 		return fmt.Errorf("pull image %q: %w", ref, err)
 	}
 	defer resp.Close()
-	if err := resp.Wait(ctx); err != nil {
-		return fmt.Errorf("pull image %q: %w", ref, err)
+
+	type layerProgress struct{ current, total int64 }
+	layers := map[string]layerProgress{}
+	for msg, err := range resp.JSONMessages(ctx) {
+		if err != nil {
+			return fmt.Errorf("pull image %q: %w", ref, err)
+		}
+		if msg.ID != "" {
+			lp := layers[msg.ID]
+			if msg.Progress != nil {
+				lp.current, lp.total = msg.Progress.Current, msg.Progress.Total
+			}
+			if msg.Status == "Pull complete" || msg.Status == "Already exists" {
+				lp.current = lp.total
+			}
+			layers[msg.ID] = lp
+		}
+		var curSum, totalSum int64
+		for _, lp := range layers {
+			curSum += lp.current
+			totalSum += lp.total
+		}
+		if report != nil {
+			if msg.Status != "" {
+				report.Log(msg.Status)
+			}
+			if totalSum > 0 {
+				report.Progress(int(curSum * 100 / totalSum))
+			}
+		}
 	}
 	return nil
 }
@@ -131,8 +160,8 @@ func (a *Adapter) ensureImage(ctx context.Context, ref string) error {
 // then checks it is still
 // running after the settle delay. A crashed container is left in place for
 // `docker logs`; the next Create claims it as an orphan.
-func (a *Adapter) launch(ctx context.Context, name string, s spec) (map[string]any, error) {
-	if err := a.ensureImage(ctx, s.Image); err != nil {
+func (a *Adapter) launch(ctx context.Context, name string, s spec, report plugin.Reporter) (map[string]any, error) {
+	if err := a.ensureImage(ctx, s.Image, report); err != nil {
 		return nil, err
 	}
 	res, err := a.api.ContainerCreate(ctx, s.createOptions(name))
