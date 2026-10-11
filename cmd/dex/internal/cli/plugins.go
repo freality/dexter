@@ -44,6 +44,11 @@ func trackKill(kill func()) {
 	killMu.Unlock()
 }
 
+// pluginOpen is a seam over plugin.Open for tests (mirrors pkg/plugin's own
+// pluginNewClient seam) so resolvePlugin/openAdapter can be exercised
+// without spawning a real subprocess.
+var pluginOpen = plugin.Open
+
 // --- resolvePlugin --------------------------------------------------------
 
 // resolvePlugin returns a resolve func for engine.NewRegistry that looks up
@@ -74,7 +79,7 @@ func resolvePlugin(dir string) func(plugin string) (engine.Adapter, error) {
 }
 
 func openAdapter(path, pluginName string) (engine.Adapter, error) {
-	inner, kill, err := plugin.Open(path, io.Discard)
+	inner, kill, err := pluginOpen(path, io.Discard)
 	if err != nil {
 		return nil, err
 	}
