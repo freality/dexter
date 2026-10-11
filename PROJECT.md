@@ -21,7 +21,7 @@ The ultimate goal of `dex` is to evolve from an ephemeral deployment script into
 The system is divided into three distinct boundaries:
 
 * **The TypeScript SDK (`@dex/iac`):** A set of builder functions (`service`, `volume`, `stack`, `network`) used to author the laboratory. It produces a JSON-based Intermediate Representation (IR).
-* **The Core Engine (Go):** The `dex` CLI. It embeds `esbuild` and `goja` to evaluate the SDK, builds the Directed Acyclic Graph (DAG) of dependencies, calculates state drift, and orchestrates concurrency via an internal Event Bus.
+* **The Core Engine (Go):** The `dex` CLI. It embeds `esbuild` and `goja` to evaluate the SDK, builds the Directed Acyclic Graph (DAG) of dependencies, calculates state drift, and orchestrates concurrency, reporting progress through an `Events` callback.
 * **The Adapters (gRPC Plugins):** Independent binaries (`dex-adapter-docker`, `dex-adapter-proxmox`) that receive standard IR JSON payloads from the core engine and translate them into target-specific API calls.
 
 ## Userland Directory Structure
@@ -32,7 +32,6 @@ my-laboratory/
 ├── .env                       # Local environment variables and secrets
 └── dex/
     ├── services/              # Auto-discovered infrastructure resources (e.g., solr.ts, web.ts)
-    ├── plugins/               # Adapter configurations and credentials
     └── commands/              # Executable TypeScript scripts for day-two ops (e.g., composer-update.ts)
 
 ```
@@ -55,7 +54,7 @@ my-laboratory/
 * Nuxt-style file auto-discovery for `dex/services/`.
 * Decoupled gRPC plugin architecture using `hashicorp/go-plugin`.
 * Custom Commands API (`dex run <cmd>`) with injected `Context`.
-* Terminal UI (TUI) powered by an internal Event Bus for concurrent deployment rendering.
+* Terminal UI (TUI) fed by an `Events` callback for concurrent deployment rendering.
 
 ### Phase 3: The Persistent Control Plane (V2)
 

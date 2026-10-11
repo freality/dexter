@@ -33,7 +33,7 @@ This document outlines the phased development plan for `dex`. It serves as a che
     *   [x] Secrets Management: Implement the `secret()` helper, `.env` parsing in Go, HMAC-SHA256 hashing for state (ADR-0002), and late-binding injection into gRPC requests.
     *   [x] Custom Commands: Implement `defineCommand` in the SDK and the `dex run <cmd>` execution flow.
 *   **Observability**
-    *   [x] Terminal UI (TUI): Integrate a framework (like Bubbletea) to render concurrent deployment progress bars via the internal Event Bus.
+    *   [x] Terminal UI (TUI): Integrate a framework (like Bubbletea) to render concurrent deployment progress bars via the `Events` callback.
 
 ## Phase 3: The Persistent Control Plane (V2)
 **Goal:** Transition from an ephemeral deployment script to a persistent homelab operating system.

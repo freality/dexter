@@ -2,7 +2,7 @@
 
 **Goal (ROADMAP Phase 2):** make `dex` usable for real homelabs. That means configs split across files, secrets that never reach IR or state, adapters shipped as separate gRPC binaries installable with `dex plugin add`/`dex plugin install`, custom commands, and a TUI showing apply progress.
 
-**Status:** confirmed across two `/grill-with-docs` rounds (Q1–Q17). Decisions below are **D1–D13**, the same numbers as the original P1–P13 proposals; D9 reverses its proposal, D12 deviates from SPEC. Three decisions were hard enough to reverse or surprising enough to need a written reason, recorded as ADRs rather than left in this plan: `docs/adr/0001-accept-go-plugin-mpl-license.md`, `0002-hmac-secret-hashing.md`, `0003-plugins-declared-in-ir.md`. Two new terms came out of the session and are now in `GLOSSARY.md`: **Secret**, **Command**.
+**Status:** shipped. Issues #1–#9 closed, merged at `5b06b54`, follow-up fixes through `e5d6d0f`. All eight ROADMAP Phase 2 boxes checked, `task check` green (100% coverage, Go and SDK). Decisions below are **D1–D13**, the same numbers as the original P1–P13 proposals; D9 reverses its proposal, D12 deviates from SPEC. Three decisions were hard enough to reverse or surprising enough to need a written reason, recorded as ADRs rather than left in this plan: `docs/adr/0001-accept-go-plugin-mpl-license.md`, `0002-hmac-secret-hashing.md`, `0003-plugins-declared-in-ir.md`. Two new terms came out of the session and are now in `GLOSSARY.md`: **Secret**, **Command**.
 
 ## Phase 1 verification
 
@@ -194,6 +194,8 @@ Use a fixed worker limit (`const maxParallel = 4`, with a `ponytail:` comment an
 ## Next
 
 1. ~~`/grill-with-docs` on P1–P13~~ — done. Confirmed decisions are D1–D13 above; `docs/adr/0001`–`0003` and `GLOSSARY.md` (`Secret`, `Command`) are written.
-2. Reword SPEC.md's contradicted sections to match: §3 (`.env` wording, D3), §5.1 (IR gains `plugins`, D9), §5.2 (proto subset, D5), §6 (HMAC hashing, D12).
-3. `/to-tickets`: one GitHub issue per W-step, with blocking edges per the work-order graph.
-4. `/implement` per ticket (or `/implement-spec` for the graph); tick ROADMAP boxes as items land.
+2. ~~Reword SPEC.md's contradicted sections~~ — done: §3, §5.1, §5.2, §6 all match D3/D9/D5/D12.
+3. ~~`/to-tickets`~~ — done, issues #1–#9.
+4. ~~`/implement` per ticket~~ — done, all nine tickets merged; ROADMAP Phase 2 fully checked.
+
+Nothing left open on this plan. `cmd/dex/internal/cli/docker.go` and its import of `adapters/docker` were removed in W3b (`8ac8a72`); a leftover `docker_test.go` that re-imported it for an end-to-end in-process test was found during a post-ship audit and deleted, with its one still-useful case (`TestPlanNeverCallsResolve`) folded into `plan_test.go`.
