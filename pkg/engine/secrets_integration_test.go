@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -12,6 +13,17 @@ import (
 	"github.com/freality/dexter/pkg/engine/ir"
 	"github.com/freality/dexter/pkg/engine/state"
 )
+
+// --- helpers ----------------------------------------------------------------
+
+func resolveOne(plugin string, a Adapter) func(string) (Adapter, error) {
+	return func(p string) (Adapter, error) {
+		if p != plugin {
+			return nil, fmt.Errorf("no adapter registered for plugin %q", p)
+		}
+		return a, nil
+	}
+}
 
 // --- Secrets integration tests ------------------------------------------------
 
@@ -54,8 +66,7 @@ func TestEngineCreateWithSecret(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{
@@ -133,8 +144,7 @@ func TestEngineUpdateWithUnchangedSecret(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: current}
 	e := New(Options{
@@ -197,8 +207,7 @@ func TestEngineUpdateWithChangedSecret(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: current}
 	e := New(Options{
@@ -247,8 +256,7 @@ func TestEngineApplyLeakGuard(t *testing.T) {
 			return map[string]any{"id": "contains-supersecret-value"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{
@@ -289,8 +297,7 @@ func TestEngineCreateWithMultipleSecrets(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{

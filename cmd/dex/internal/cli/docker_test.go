@@ -2,10 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/freality/dexter/adapters/docker"
+	"github.com/freality/dexter/pkg/engine"
 	"github.com/freality/dexter/pkg/engine/ir"
 	"github.com/freality/dexter/pkg/engine/state"
 )
@@ -24,7 +26,8 @@ func TestApplyDrivesDockerAdapter(t *testing.T) {
 		if props != nil {
 			doc.Resources["whoami"] = ir.Resource{Type: "container", Plugin: "docker", Properties: props, DependsOn: []string{}}
 		}
-		cmd := newRootCmd(engineDeps(doc, st, registryFor(docker.NewWithAPI(daemon))))
+		reg := testRegistry(map[string]engine.Adapter{"docker": docker.NewWithAPI(daemon)})
+		cmd := newRootCmd(engineDeps(doc, st, reg))
 		var out bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetArgs([]string{"apply", "--dir", dir, "--yes"})
@@ -58,12 +61,57 @@ func TestApplyDrivesDockerAdapter(t *testing.T) {
 	}
 }
 
-func TestMainReportsBadDockerHost(t *testing.T) {
+// TestPlanNeverCallsResolve verifies that `dex plan` does not invoke the
+// registry's resolve function, even when the adapter binary is missing.
+// The resolve function panics if called, proving Plan doesn't touch it.
+func TestPlanNeverCallsResolve(t *testing.T) {
 	dir := t.TempDir()
 	mustRunInit(t, dir)
-	t.Setenv("DOCKER_HOST", "::not-a-host")
+	st := state.New()
+
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"whoami": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
+	}}
+	registry := engine.NewRegistry(func(plugin string) (engine.Adapter, error) {
+		t.Fatal("resolve called during Plan (should not happen)")
+		return nil, fmt.Errorf("unreachable")
+	})
+
+	cmd := newRootCmd(engineDeps(doc, st, registry))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"plan", "--dir", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("plan error = %v", err)
+	}
+	if !strings.Contains(out.String(), "whoami") {
+		t.Fatalf("plan output = %q, want whoami listed", out.String())
+	}
+}
+
+// TestUnknownPluginError checks that apply fails with a clear "not installed"
+// error when the adapter binary is not found.
+func TestUnknownPluginError(t *testing.T) {
+	dir := t.TempDir()
+	mustRunInit(t, dir)
+	st := state.New()
+
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"svc": {Type: "container", Plugin: "missing-plugin", Properties: map[string]any{}, DependsOn: []string{}},
+	}}
+	registry := engine.NewRegistry(func(plugin string) (engine.Adapter, error) {
+		return nil, fmt.Errorf(`plugin %q not installed (run: dex plugin install)`, plugin)
+	})
+
+	cmd := newRootCmd(engineDeps(doc, st, registry))
 	var out, errOut bytes.Buffer
-	if code := Main([]string{"plan", "--dir", dir}, strings.NewReader(""), &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "docker client: ") {
-		t.Fatalf("code = %d, stderr = %q", code, errOut.String())
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"apply", "--dir", dir, "--yes"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("apply should have failed")
+	}
+	if !strings.Contains(errOut.String(), "not installed") {
+		t.Fatalf("stderr = %q, want 'not installed'", errOut.String())
 	}
 }

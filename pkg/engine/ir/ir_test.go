@@ -130,6 +130,38 @@ func TestValidateRows(t *testing.T) {
 			wantReason: "must not be empty",
 		},
 		{
+			name: "invalid plugin name with dot",
+			doc: &Document{Project: "p", Resources: map[string]Resource{
+				"a": {Type: "t", Plugin: "my.plugin"},
+			}},
+			wantField:  `resources["a"].plugin`,
+			wantReason: "invalid plugin name",
+		},
+		{
+			name: "invalid plugin name with underscore",
+			doc: &Document{Project: "p", Resources: map[string]Resource{
+				"a": {Type: "t", Plugin: "my_plugin"},
+			}},
+			wantField:  `resources["a"].plugin`,
+			wantReason: "invalid plugin name",
+		},
+		{
+			name: "invalid plugin name with uppercase",
+			doc: &Document{Project: "p", Resources: map[string]Resource{
+				"a": {Type: "t", Plugin: "MyPlugin"},
+			}},
+			wantField:  `resources["a"].plugin`,
+			wantReason: "invalid plugin name",
+		},
+		{
+			name: "path-traversal plugin name",
+			doc: &Document{Project: "p", Resources: map[string]Resource{
+				"a": {Type: "t", Plugin: "../x"},
+			}},
+			wantField:  `resources["a"].plugin`,
+			wantReason: "invalid plugin name",
+		},
+		{
 			name: "self dependency",
 			doc: &Document{Project: "p", Resources: map[string]Resource{
 				"a": {Type: "t", Plugin: "p", DependsOn: []string{"a"}},

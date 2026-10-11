@@ -27,6 +27,7 @@ tasks:
     deps: [build:ts]
     cmds:
       - go build -o bin/dex ./cmd/dex
+      - go build -o bin/dex-adapter-docker ./adapters/docker/cmd/dex-adapter-docker
     sources:
       - '**/*.go'
       - pkg/jsenv/sdk/iac.js
