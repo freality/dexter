@@ -21,7 +21,7 @@
 
 These facts matter for Phase 2:
 
-- `engine.Apply` runs `plan.Changes` **serially** and reports through `Options.Out io.Writer` (`"%s: done"`). There is no event bus and no concurrency.
+- `engine.Apply` runs `plan.Changes` **serially** and reports through `Options.Events func(Event)` (D11's callback; the CLI sink in `root.go` `applySink` renders today's `"%s: done"` lines). There is no fan-out bus and no concurrency.
 - `engine.Adapter` is `Create`/`Update`/`Delete`. `Update` receives the current `state.Resource`, and `docker.Adapter.Update` needs the prior properties for its restart-only fast path (Phase 1 D5).
 - The env passed to `env()` comes from process env only (`root.go` `envMap`). `.env` is scaffolded by `dex init` but never read.
 - `dex init` already creates `dex/services/.gitkeep`, but nothing reads that directory.

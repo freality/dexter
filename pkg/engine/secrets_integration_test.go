@@ -13,8 +13,7 @@ import (
 	"github.com/freality/dexter/pkg/engine/state"
 )
 
-// --- Secrets integration tests ------------------------------------------------
-
+// --- helpers ----------------------------------------------------------------
 func TestEnginePlanMissingSecretKeyInEnv(t *testing.T) {
 	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"svc": {Type: "container", Plugin: "docker", Properties: map[string]any{
@@ -49,13 +48,12 @@ func TestEngineCreateWithSecret(t *testing.T) {
 
 	var capturedProps map[string]any
 	adapter := adapterFunc{
-		create: func(_ context.Context, _ string, r ir.Resource) (map[string]any, error) {
+		create: func(_ context.Context, _ string, r ir.Resource, _ func(Event)) (map[string]any, error) {
 			capturedProps = r.Properties
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{
@@ -133,8 +131,7 @@ func TestEngineUpdateWithUnchangedSecret(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: current}
 	e := New(Options{
@@ -197,8 +194,7 @@ func TestEngineUpdateWithChangedSecret(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: current}
 	e := New(Options{
@@ -243,12 +239,11 @@ func TestEngineApplyLeakGuard(t *testing.T) {
 	}}
 
 	adapter := adapterFunc{
-		create: func(_ context.Context, _ string, _ ir.Resource) (map[string]any, error) {
+		create: func(_ context.Context, _ string, _ ir.Resource, _ func(Event)) (map[string]any, error) {
 			return map[string]any{"id": "contains-supersecret-value"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{
@@ -284,13 +279,12 @@ func TestEngineCreateWithMultipleSecrets(t *testing.T) {
 
 	var capturedProps map[string]any
 	adapter := adapterFunc{
-		create: func(_ context.Context, _ string, r ir.Resource) (map[string]any, error) {
+		create: func(_ context.Context, _ string, r ir.Resource, _ func(Event)) (map[string]any, error) {
 			capturedProps = r.Properties
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{
@@ -324,15 +318,15 @@ type updateCaptureAdapter struct {
 	update func(context.Context, string, map[string]any, map[string]any) (map[string]any, error)
 }
 
-func (a *updateCaptureAdapter) Create(_ context.Context, _ string, _ ir.Resource) (map[string]any, error) {
+func (a *updateCaptureAdapter) Create(_ context.Context, _ string, _ ir.Resource, _ func(Event)) (map[string]any, error) {
 	return nil, nil
 }
 
-func (a *updateCaptureAdapter) Update(ctx context.Context, name string, r ir.Resource, cur state.Resource) (map[string]any, error) {
+func (a *updateCaptureAdapter) Update(ctx context.Context, name string, r ir.Resource, cur state.Resource, _ func(Event)) (map[string]any, error) {
 	return a.update(ctx, name, r.Properties, cur.Properties)
 }
 
-func (a *updateCaptureAdapter) Delete(_ context.Context, _ string, _ state.Resource) error {
+func (a *updateCaptureAdapter) Delete(_ context.Context, _ string, _ state.Resource, _ func(Event)) error {
 	return nil
 }
 
