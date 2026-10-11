@@ -8,6 +8,16 @@ import (
 	"github.com/moby/moby/api/types/container"
 )
 
+// TestNewPlugin verifies NewPlugin returns a Plugin wrapping the adapter.
+func TestNewPlugin(t *testing.T) {
+	f := NewFake()
+	a := NewWithAPI(f)
+	p := NewPlugin(a)
+	if p.a != a {
+		t.Fatalf("NewPlugin().a = %v, want %v", p.a, a)
+	}
+}
+
 // TestPluginApplyCreate checks that Plugin.Apply with nil Prior calls Create
 // and returns the outputs.
 func TestPluginApplyCreate(t *testing.T) {

@@ -122,13 +122,3 @@ func (r *eventReporter) Log(msg string) {
 func (r *eventReporter) Progress(pct int) {
 	r.report(engine.Event{Kind: engine.EventProgress, Percent: pct})
 }
-
-// --- nilReporter ------------------------------------------------------------
-// Used when the engine calls Delete/Create/Update without a report callback.
-
-type nilReporterType struct{}
-
-func (nilReporterType) Log(msg string)   {}
-func (nilReporterType) Progress(pct int) {}
-
-var nilReporter = nilReporterType{}
