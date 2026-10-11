@@ -11,9 +11,11 @@ import (
 // Adapter applies changes for one plugin. The in-process Docker adapter is
 // the first implementation; the gRPC client in Phase 2 is another.
 type Adapter interface {
-	Create(ctx context.Context, name string, r ir.Resource) (map[string]any, error)
-	Update(ctx context.Context, name string, r ir.Resource, cur state.Resource) (map[string]any, error)
-	Delete(ctx context.Context, name string, cur state.Resource) error
+	// report streams Log/Progress events: only Kind, Message and Percent
+	// are used; the engine fills in Name and Action (W4a).
+	Create(ctx context.Context, name string, r ir.Resource, report func(Event)) (map[string]any, error)
+	Update(ctx context.Context, name string, r ir.Resource, cur state.Resource, report func(Event)) (map[string]any, error)
+	Delete(ctx context.Context, name string, cur state.Resource, report func(Event)) error
 }
 
 // Registry looks up an Adapter by plugin name. Keyed by plugin, not

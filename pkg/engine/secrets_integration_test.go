@@ -49,7 +49,7 @@ func TestEngineCreateWithSecret(t *testing.T) {
 
 	var capturedProps map[string]any
 	adapter := adapterFunc{
-		create: func(_ context.Context, _ string, r ir.Resource) (map[string]any, error) {
+		create: func(_ context.Context, _ string, r ir.Resource, _ func(Event)) (map[string]any, error) {
 			capturedProps = r.Properties
 			return map[string]any{"id": "abc"}, nil
 		},
@@ -243,7 +243,7 @@ func TestEngineApplyLeakGuard(t *testing.T) {
 	}}
 
 	adapter := adapterFunc{
-		create: func(_ context.Context, _ string, _ ir.Resource) (map[string]any, error) {
+		create: func(_ context.Context, _ string, _ ir.Resource, _ func(Event)) (map[string]any, error) {
 			return map[string]any{"id": "contains-supersecret-value"}, nil
 		},
 	}
@@ -284,7 +284,7 @@ func TestEngineCreateWithMultipleSecrets(t *testing.T) {
 
 	var capturedProps map[string]any
 	adapter := adapterFunc{
-		create: func(_ context.Context, _ string, r ir.Resource) (map[string]any, error) {
+		create: func(_ context.Context, _ string, r ir.Resource, _ func(Event)) (map[string]any, error) {
 			capturedProps = r.Properties
 			return map[string]any{"id": "abc"}, nil
 		},
@@ -324,15 +324,15 @@ type updateCaptureAdapter struct {
 	update func(context.Context, string, map[string]any, map[string]any) (map[string]any, error)
 }
 
-func (a *updateCaptureAdapter) Create(_ context.Context, _ string, _ ir.Resource) (map[string]any, error) {
+func (a *updateCaptureAdapter) Create(_ context.Context, _ string, _ ir.Resource, _ func(Event)) (map[string]any, error) {
 	return nil, nil
 }
 
-func (a *updateCaptureAdapter) Update(ctx context.Context, name string, r ir.Resource, cur state.Resource) (map[string]any, error) {
+func (a *updateCaptureAdapter) Update(ctx context.Context, name string, r ir.Resource, cur state.Resource, _ func(Event)) (map[string]any, error) {
 	return a.update(ctx, name, r.Properties, cur.Properties)
 }
 
-func (a *updateCaptureAdapter) Delete(_ context.Context, _ string, _ state.Resource) error {
+func (a *updateCaptureAdapter) Delete(_ context.Context, _ string, _ state.Resource, _ func(Event)) error {
 	return nil
 }
 
