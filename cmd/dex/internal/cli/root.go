@@ -2,15 +2,16 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/freality/dexter/adapters/docker"
 	"github.com/freality/dexter/pkg/engine"
 	"github.com/freality/dexter/pkg/engine/state"
 	"github.com/freality/dexter/pkg/jsenv"
@@ -24,14 +25,21 @@ type deps struct {
 // Main builds the CLI, executes it against args, and returns a process exit
 // code. Commands write only through in/out/errOut — never direct os.Stdin
 // or fmt.Println — so every path is assertable.
+//
+// Signal handling: create a context that cancels on SIGINT/SIGTERM so
+// adapter subprocesses get cleaned up, then defer cleanup of all plugin
+// clients.
 func Main(args []string, in io.Reader, out, errOut io.Writer) int {
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer CleanupClients()
+
 	root := newRootCmd(productionDeps())
 	root.SetArgs(args)
 	root.SetIn(in)
 	root.SetOut(out)
 	root.SetErr(errOut)
 
-	if err := root.Execute(); err != nil {
+	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return 1
 	}
@@ -58,13 +66,10 @@ func productionDeps() deps {
 }
 
 // newProductionEngine wires the real esbuild/goja synthesizer, on-disk state
-// store, and Docker adapter. .env values are loaded first, then process
+// store, and the plugin-adapter resolve function that finds adapter binaries
+// on PATH or in .dex/plugins/. .env values are loaded first, then process
 // env is overlaid (process env wins for same key).
 func newProductionEngine(dir string) (*engine.Engine, error) {
-	dock, err := docker.New()
-	if err != nil {
-		return nil, err
-	}
 	synth := jsenv.NewSynthesizer(jsenv.NewEsbuildBundler(), jsenv.NewGojaEvaluator())
 
 	env, err := loadEnv(dir)
@@ -81,7 +86,7 @@ func newProductionEngine(dir string) (*engine.Engine, error) {
 		Synth:    synth,
 		Store:    state.NewFileStore(dir, time.Now),
 		Lock:     state.NewLock(dir),
-		Registry: registryFor(dock),
+		Registry: engine.NewRegistry(resolvePlugin(dir)),
 		Env:      env,
 		Events:   applySink(os.Stdout),
 	}), nil

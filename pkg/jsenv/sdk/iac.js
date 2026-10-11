@@ -125,6 +125,7 @@ function sanitizeProperties(resourceName, properties) {
 
 // packages/sdk/dist/resource.js
 var RESOURCE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+var PLUGIN_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 function defineResource(kind, collector) {
   return (name, spec) => {
     var _a, _b, _c;
@@ -136,6 +137,9 @@ function defineResource(kind, collector) {
     }
     if (typeof spec.plugin !== "string" || spec.plugin === "") {
       throw new DexError("INVALID_PLUGIN", `resource "${name}" must declare a non-empty plugin`);
+    }
+    if (!PLUGIN_NAME_PATTERN.test(spec.plugin)) {
+      throw new DexError("INVALID_PLUGIN", `resource "${name}" has an invalid plugin name "${spec.plugin}"`);
     }
     const properties = sanitizeProperties(name, (_a = spec.properties) != null ? _a : {});
     const deps = ((_b = spec.dependsOn) != null ? _b : []).map((entry) => {

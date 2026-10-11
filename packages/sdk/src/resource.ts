@@ -4,6 +4,9 @@ import type { ResourceCollector } from "./registry.js";
 import type { ResourceNode, ResourceSpec } from "./types.js";
 
 export const RESOURCE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+// PLUGIN_NAME_PATTERN constrains plugin names to binary-safe characters.
+// Plugins become dex-adapter-<name> binaries on disk.
+export const PLUGIN_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
 export type ResourceBuilder = (name: string, spec: ResourceSpec) => ResourceNode;
 
@@ -21,6 +24,9 @@ export function defineResource(kind: string, collector: ResourceCollector): Reso
     }
     if (typeof spec.plugin !== "string" || spec.plugin === "") {
       throw new DexError("INVALID_PLUGIN", `resource "${name}" must declare a non-empty plugin`);
+    }
+    if (!PLUGIN_NAME_PATTERN.test(spec.plugin)) {
+      throw new DexError("INVALID_PLUGIN", `resource "${name}" has an invalid plugin name "${spec.plugin}"`);
     }
 
     const properties = sanitizeProperties(name, spec.properties ?? {});

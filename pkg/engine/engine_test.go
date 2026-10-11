@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +16,22 @@ import (
 	"github.com/freality/dexter/pkg/engine/state"
 	"github.com/freality/dexter/pkg/jsenv"
 )
+
+// --- helpers ----------------------------------------------------------------
+// resolveNone returns a resolve func that always fails.
+func resolveNone() func(string) (Adapter, error) {
+	return func(plugin string) (Adapter, error) {
+		return nil, fmt.Errorf("no adapter registered for plugin %q", plugin)
+	}
+}
+
+// disableResolver returns a resolve that blocks all adapters with an error
+// mentioning pluginName, matching TestEngineApplyRegistryMiss's expected error.
+func resolveMissing() func(string) (Adapter, error) {
+	return func(plugin string) (Adapter, error) {
+		return nil, fmt.Errorf("no adapter registered for plugin %q", plugin)
+	}
+}
 
 // --- fakes -------------------------------------------------------------
 
@@ -199,8 +216,7 @@ func TestEngineApplyFullLifecycle(t *testing.T) {
 		createOut: map[string]any{"id": "new-id"},
 		updateOut: map[string]any{"id": "mid-id"},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: current}
 	locker := &fakeLocker{}
@@ -271,8 +287,7 @@ func TestEngineApplyCreateEventSequence(t *testing.T) {
 	desired := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
 	}}
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{}))
 	locker := &fakeLocker{}
 	store := &fakeStore{st: state.New()}
 	var events []Event
@@ -307,8 +322,7 @@ func TestEngineApplyUpdateFailureEmitsFailed(t *testing.T) {
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{"image": "v2"}, DependsOn: []string{}},
 	}}
 	boom := errors.New("update boom")
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{updateErr: boom})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{updateErr: boom}))
 	locker := &fakeLocker{}
 	var events []Event
 	e := New(Options{
@@ -339,14 +353,13 @@ func TestEngineApplyAdapterLogPassthrough(t *testing.T) {
 	desired := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
 	}}
-	registry := NewRegistry()
-	registry.Register("docker", adapterFunc{
+	registry := NewRegistry(resolveOne("docker", adapterFunc{
 		create: func(_ context.Context, _ string, _ ir.Resource, report func(Event)) (map[string]any, error) {
 			report(Event{Kind: EventLog, Message: "pulling image"})
 			report(Event{Kind: EventProgress, Percent: 42})
 			return nil, nil
 		},
-	})
+	}))
 	locker := &fakeLocker{}
 	var events []Event
 	e := New(Options{
@@ -381,7 +394,7 @@ func TestEngineApplyEmptyPlanDoesNotSave(t *testing.T) {
 	}}
 	store := &fakeStore{st: current}
 	locker := &fakeLocker{}
-	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry()})
+	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry(resolveNone())})
 
 	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
@@ -405,7 +418,7 @@ func TestEngineApplyEmptyPlanDoesNotSave(t *testing.T) {
 func TestEngineApplyLockAcquireFailure(t *testing.T) {
 	boom := errors.New("locked")
 	locker := &fakeLocker{acquireErr: boom}
-	e := New(Options{Synth: fakeSynth(t, &ir.Document{Project: "p"}), Store: &fakeStore{st: state.New()}, Lock: locker, Registry: NewRegistry()})
+	e := New(Options{Synth: fakeSynth(t, &ir.Document{Project: "p"}), Store: &fakeStore{st: state.New()}, Lock: locker, Registry: NewRegistry(resolveNone())})
 
 	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
@@ -430,7 +443,7 @@ func TestEngineApplyStaleStateRejected(t *testing.T) {
 	}}
 	store := &fakeStore{st: state.New()}
 	locker := &fakeLocker{}
-	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry()})
+	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry(resolveNone())})
 
 	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
@@ -450,7 +463,7 @@ func TestEngineApplyStaleStateRejected(t *testing.T) {
 func TestEngineApplyStoreLoadError(t *testing.T) {
 	boom := errors.New("load boom")
 	locker := &fakeLocker{}
-	e := New(Options{Store: &fakeStore{loadErr: boom}, Lock: locker, Registry: NewRegistry()})
+	e := New(Options{Store: &fakeStore{loadErr: boom}, Lock: locker, Registry: NewRegistry(resolveNone())})
 
 	_, err := e.Apply(context.Background(), &diff.Plan{Project: "p"})
 	if !errors.Is(err, boom) {
@@ -469,8 +482,7 @@ func TestEngineApplyUpdateErrorAborts(t *testing.T) {
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{"image": "v2"}, DependsOn: []string{}},
 	}}
 	boom := errors.New("update boom")
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{updateErr: boom})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{updateErr: boom}))
 	locker := &fakeLocker{}
 	store := &fakeStore{st: current}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: registry})
@@ -498,8 +510,7 @@ func TestEngineApplyDeleteErrorAborts(t *testing.T) {
 	current.Resources["a"] = state.Resource{Type: "container", Plugin: "docker", Properties: map[string]any{}}
 	desired := &ir.Document{Project: "p", Resources: map[string]ir.Resource{}}
 	boom := errors.New("delete boom")
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{deleteErr: boom})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{deleteErr: boom}))
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: current}, Lock: locker, Registry: registry})
 
@@ -522,7 +533,7 @@ func TestEngineApplyRegistryMiss(t *testing.T) {
 	}}
 	locker := &fakeLocker{}
 	store := &fakeStore{st: state.New()}
-	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry()})
+	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: NewRegistry(resolveMissing())})
 
 	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
@@ -547,18 +558,9 @@ func TestEngineApplyAdapterErrorPersistsEarlierChange(t *testing.T) {
 		"b": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{"a"}},
 	}}
 	boom := errors.New("create boom")
-	adapter := &fakeAdapter{}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
-	store := &fakeStore{st: state.New()}
-	locker := &fakeLocker{}
 
-	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: registry})
-
-	// First change ("a") succeeds; fail the second ("b") by making the
-	// second Create call error.
 	calls := 0
-	registry.adapters["docker"] = adapterFunc{
+	adapter := adapterFunc{
 		create: func(ctx context.Context, name string, r ir.Resource, _ func(Event)) (map[string]any, error) {
 			calls++
 			if calls == 2 {
@@ -567,6 +569,11 @@ func TestEngineApplyAdapterErrorPersistsEarlierChange(t *testing.T) {
 			return map[string]any{"n": calls}, nil
 		},
 	}
+	registry := NewRegistry(resolveOne("docker", adapter))
+	store := &fakeStore{st: state.New()}
+	locker := &fakeLocker{}
+
+	e := New(Options{Synth: fakeSynth(t, desired), Store: store, Lock: locker, Registry: registry})
 
 	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
@@ -598,8 +605,7 @@ func TestEngineApplyJoinsSaveErrorWithAdapterError(t *testing.T) {
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
 	}}
 	createErr, saveErr := errors.New("create boom"), errors.New("save boom")
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{createErr: createErr})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{createErr: createErr}))
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New(), saveErr: saveErr}, Lock: &fakeLocker{}, Registry: registry})
 
 	plan, err := e.Plan(context.Background(), entryDir)
@@ -617,8 +623,7 @@ func TestEngineApplyStoreSaveError(t *testing.T) {
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
 	}}
 	boom := errors.New("save boom")
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{}))
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New(), saveErr: boom}, Lock: locker, Registry: registry})
 
@@ -639,7 +644,7 @@ func TestEngineApplyLockReleaseErrorJoined(t *testing.T) {
 	desired := &ir.Document{Project: "p", Resources: map[string]ir.Resource{}}
 	releaseErr := errors.New("release boom")
 	locker := &fakeLocker{releaseErr: releaseErr}
-	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New()}, Lock: locker, Registry: NewRegistry()})
+	e := New(Options{Synth: fakeSynth(t, desired), Store: &fakeStore{st: state.New()}, Lock: locker, Registry: NewRegistry(resolveNone())})
 
 	plan, err := e.Plan(context.Background(), entryDir)
 	if err != nil {
@@ -662,6 +667,7 @@ func (p adapterFunc) Create(ctx context.Context, name string, r ir.Resource, rep
 func (adapterFunc) Update(context.Context, string, ir.Resource, state.Resource, func(Event)) (map[string]any, error) {
 	return nil, nil
 }
+func (adapterFunc) Delete(context.Context, string, state.Resource, func(Event)) error { return nil }
 
 // --- Plan key/hash errors ---------------------------------------------------
 
@@ -725,8 +731,7 @@ func TestEngineApplyKeyError(t *testing.T) {
 	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
 	}}
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{}))
 	store := &fakeStore{st: state.New()}
 	locker := &fakeLocker{}
 	e := New(Options{Synth: fakeSynth(t, doc), Store: store, Lock: locker, Registry: registry})
@@ -773,8 +778,7 @@ func TestEngineApplyCreateResolveError(t *testing.T) {
 			}},
 		}, DependsOn: []string{}},
 	}}
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{}))
 	store := &fakeStore{st: state.New()}
 	locker := &fakeLocker{}
 
@@ -823,8 +827,7 @@ func TestEngineApplyUpdateResolveError(t *testing.T) {
 			}},
 		}, DependsOn: []string{}},
 	}}
-	registry := NewRegistry()
-	registry.Register("docker", &fakeAdapter{})
+	registry := NewRegistry(resolveOne("docker", &fakeAdapter{}))
 	store := &fakeStore{st: current}
 	locker := &fakeLocker{}
 
@@ -876,4 +879,3 @@ func TestEnginePlanCycleError(t *testing.T) {
 		t.Fatalf("Plan() error = %v, want cycle/dependency graph error", err)
 	}
 }
-func (adapterFunc) Delete(context.Context, string, state.Resource, func(Event)) error { return nil }

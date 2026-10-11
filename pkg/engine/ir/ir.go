@@ -14,6 +14,11 @@ import (
 // NamePattern mirrors RESOURCE_NAME_PATTERN in packages/sdk/src/resource.ts.
 var NamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
+// PluginNamePattern mirrors PLUGIN_NAME_PATTERN in packages/sdk/src/resource.ts.
+// Plugins are binary names (dex-adapter-<name>), so only lowercase
+// alphanumeric and hyphens are allowed. No dots or underscores.
+var PluginNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
 // Resource is one node in the IR, keyed by name in Document.Resources.
 type Resource struct {
 	Type       string         `json:"type"`
@@ -119,6 +124,9 @@ func (d *Document) Validate() error {
 		}
 		if r.Plugin == "" {
 			return &ValidationError{Field: fmt.Sprintf("resources[%q].plugin", name), Reason: "must not be empty"}
+		}
+		if !PluginNamePattern.MatchString(r.Plugin) {
+			return &ValidationError{Field: fmt.Sprintf("resources[%q].plugin", name), Reason: "invalid plugin name"}
 		}
 		for i, dep := range r.DependsOn {
 			if dep == name {

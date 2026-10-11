@@ -11,6 +11,7 @@ import (
 	"github.com/freality/dexter/pkg/engine/state"
 )
 
+// TestApplyCommand... etc
 func TestApplyCmdYesFlag(t *testing.T) {
 	dir := t.TempDir()
 	mustRunInit(t, dir)
@@ -161,8 +162,7 @@ func TestApplyOutputByteIdenticalSuccess(t *testing.T) {
 	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
 	}}
-	registry := engine.NewRegistry()
-	registry.Register("docker", okAdapter{})
+	registry := testRegistry(map[string]engine.Adapter{"docker": okAdapter{}})
 	var out bytes.Buffer
 	cmd := newRootCmd(eventsEngineDeps(doc, state.New(), registry, applySink(&out)))
 	cmd.SetOut(&out)
@@ -190,8 +190,7 @@ func TestApplyOutputByteIdenticalFailedCreate(t *testing.T) {
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
 		"b": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
 	}}
-	registry := engine.NewRegistry()
-	registry.Register("docker", nameFailAdapter{failCreate: "b"})
+	registry := testRegistry(map[string]engine.Adapter{"docker": nameFailAdapter{failCreate: "b"}})
 	var out bytes.Buffer
 	cmd := newRootCmd(eventsEngineDeps(doc, state.New(), registry, applySink(&out)))
 	cmd.SetOut(&out)
@@ -223,8 +222,7 @@ func TestApplyOutputByteIdenticalFailedUpdate(t *testing.T) {
 	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{"image": "v2"}, DependsOn: []string{}},
 	}}
-	registry := engine.NewRegistry()
-	registry.Register("docker", nameFailAdapter{failUpdate: "a"})
+	registry := testRegistry(map[string]engine.Adapter{"docker": nameFailAdapter{failUpdate: "a"}})
 	var out bytes.Buffer
 	cmd := newRootCmd(eventsEngineDeps(doc, current, registry, applySink(&out)))
 	cmd.SetOut(&out)
