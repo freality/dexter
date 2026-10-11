@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/freality/dexter/pkg/engine"
+	"github.com/freality/dexter/pkg/engine/diff"
 	"github.com/freality/dexter/pkg/engine/ir"
 	"github.com/freality/dexter/pkg/engine/state"
 	"github.com/freality/dexter/pkg/plugin"
@@ -89,26 +90,41 @@ type pluginBridge struct {
 	inner plugin.Adapter
 }
 
-func (a *pluginBridge) Create(ctx context.Context, name string, r ir.Resource) (map[string]any, error) {
+func (a *pluginBridge) Create(ctx context.Context, name string, r ir.Resource, report func(engine.Event)) (map[string]any, error) {
 	return a.inner.Apply(ctx, plugin.Request{
 		Name: name, Type: r.Type, Properties: r.Properties,
-	}, nilReporter)
+	}, &eventReporter{report: report})
 }
 
-func (a *pluginBridge) Update(ctx context.Context, name string, r ir.Resource, cur state.Resource) (map[string]any, error) {
+func (a *pluginBridge) Update(ctx context.Context, name string, r ir.Resource, cur state.Resource, report func(engine.Event)) (map[string]any, error) {
 	return a.inner.Apply(ctx, plugin.Request{
 		Name: name, Type: r.Type, Properties: r.Properties,
 		Prior: cur.Properties,
-	}, nilReporter)
+	}, &eventReporter{report: report})
 }
 
-func (a *pluginBridge) Delete(ctx context.Context, name string, cur state.Resource) error {
+func (a *pluginBridge) Delete(ctx context.Context, name string, cur state.Resource, report func(engine.Event)) error {
 	return a.inner.Destroy(ctx, plugin.Request{
 		Name: name, Type: cur.Type, Properties: cur.Properties, Outputs: cur.Outputs,
-	}, nilReporter)
+	}, &eventReporter{report: report})
+}
+
+// eventReporter bridges a func(Event) to plugin.Reporter by emitting
+// EventLog and EventProgress Events.
+type eventReporter struct {
+	report func(engine.Event)
+}
+
+func (r *eventReporter) Log(msg string) {
+	r.report(engine.Event{Kind: engine.EventLog, Message: msg})
+}
+
+func (r *eventReporter) Progress(pct int) {
+	r.report(engine.Event{Kind: engine.EventProgress, Percent: pct})
 }
 
 // --- nilReporter ------------------------------------------------------------
+// Used when the engine calls Delete/Create/Update without a report callback.
 
 type nilReporterType struct{}
 
