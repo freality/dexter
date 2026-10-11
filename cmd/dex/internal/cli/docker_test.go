@@ -123,14 +123,10 @@ func TestUnknownPluginError(t *testing.T) {
 	})
 
 	cmd := newRootCmd(engineDeps(doc, st, registry))
-	var out, errOut bytes.Buffer
+	var out bytes.Buffer
 	cmd.SetOut(&out)
-	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{"apply", "--dir", dir, "--yes"})
-	if err := cmd.Execute(); err == nil {
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not installed") {
 		t.Fatal("apply should have failed")
-	}
-	if !strings.Contains(errOut.String(), "not installed") {
-		t.Fatalf("stderr = %q, want 'not installed'", errOut.String())
 	}
 }
