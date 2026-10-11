@@ -23,13 +23,20 @@ import (
 const e2eImage = "traefik/whoami:latest"
 
 type e2eProject struct {
-	t   *testing.T
-	dir string
+	t    *testing.T
+	dir  string
+	path string // saved PATH to restore on cleanup
 }
 
 func newE2EProject(t *testing.T) *e2eProject {
 	t.Helper()
 	p := &e2eProject{t: t, dir: t.TempDir()}
+	// Add bin/ to PATH so dex apply can find dex-adapter-docker.
+	oldPath := os.Getenv("PATH")
+	p.path = oldPath
+	binDir, _ := filepath.Abs("bin")
+	os.Setenv("PATH", binDir+":"+oldPath)
+	t.Cleanup(func() { os.Setenv("PATH", oldPath) })
 	if code, out := p.dex("init"); code != 0 {
 		t.Fatalf("dex init = %d: %s", code, out)
 	}

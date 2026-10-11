@@ -81,6 +81,17 @@ describe("defineResource", () => {
     );
   });
 
+  it.each([[ "my.plugin" ], [ "my_plugin" ], [ "../x" ], [ "MyPlugin" ]])(
+    "rejects invalid plugin name %s",
+    (plugin) => {
+      expectDexError(
+        () => setup().build("x", spec({ plugin: plugin as string })),
+        "INVALID_PLUGIN",
+        'resource "x" has an invalid plugin name "' + plugin + '"',
+      );
+    },
+  );
+
   it("accepts nodes and strings as dependencies, deduped and sorted", () => {
     const { build } = setup();
     const b = build("b", spec());

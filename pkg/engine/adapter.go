@@ -22,24 +22,32 @@ type Adapter interface {
 // resource type: SPEC §5.2 adapters are per-plugin and one plugin serves
 // many types.
 type Registry struct {
-	adapters map[string]Adapter
+	resolve func(plugin string) (Adapter, error)
+	cache   map[string]Adapter
+	cacheOk map[string]bool
 }
 
-// NewRegistry returns an empty Registry.
-func NewRegistry() *Registry {
-	return &Registry{adapters: map[string]Adapter{}}
+// NewRegistry returns a Registry backed by resolve, which is called at most
+// once per plugin name (lazy, cached).
+func NewRegistry(resolve func(plugin string) (Adapter, error)) *Registry {
+	return &Registry{resolve: resolve, cache: map[string]Adapter{}, cacheOk: map[string]bool{}}
 }
 
-// Register associates a plugin name with an Adapter.
-func (r *Registry) Register(plugin string, a Adapter) {
-	r.adapters[plugin] = a
-}
-
-// Get returns the Adapter registered for plugin, or an error naming it.
+// Get returns the Adapter for plugin, resolving lazily and caching the result.
+// An earlier resolve error for the same name is replayed without re-calling resolve.
 func (r *Registry) Get(plugin string) (Adapter, error) {
-	a, ok := r.adapters[plugin]
-	if !ok {
-		return nil, fmt.Errorf("no adapter registered for plugin %q", plugin)
+	if ok, seen := r.cacheOk[plugin]; seen {
+		if !ok {
+			return nil, fmt.Errorf("no adapter registered for plugin %q", plugin)
+		}
+		return r.cache[plugin], nil
 	}
+	a, err := r.resolve(plugin)
+	if err != nil {
+		r.cacheOk[plugin] = false
+		return nil, err
+	}
+	r.cache[plugin] = a
+	r.cacheOk[plugin] = true
 	return a, nil
 }

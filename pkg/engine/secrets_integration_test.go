@@ -13,8 +13,7 @@ import (
 	"github.com/freality/dexter/pkg/engine/state"
 )
 
-// --- Secrets integration tests ------------------------------------------------
-
+// --- helpers ----------------------------------------------------------------
 func TestEnginePlanMissingSecretKeyInEnv(t *testing.T) {
 	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"svc": {Type: "container", Plugin: "docker", Properties: map[string]any{
@@ -54,8 +53,7 @@ func TestEngineCreateWithSecret(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{
@@ -133,8 +131,7 @@ func TestEngineUpdateWithUnchangedSecret(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: current}
 	e := New(Options{
@@ -197,8 +194,7 @@ func TestEngineUpdateWithChangedSecret(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: current}
 	e := New(Options{
@@ -247,8 +243,7 @@ func TestEngineApplyLeakGuard(t *testing.T) {
 			return map[string]any{"id": "contains-supersecret-value"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{
@@ -289,8 +284,7 @@ func TestEngineCreateWithMultipleSecrets(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{

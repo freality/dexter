@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/freality/dexter/pkg/engine"
 	"github.com/freality/dexter/pkg/engine/ir"
@@ -57,10 +58,9 @@ func (okAdapter) Delete(context.Context, string, state.Resource, func(engine.Eve
 	return nil
 }
 
-// nameFailAdapter succeeds every call except Create/Update of the named
-// resource, so output tests can fail one change mid-run.
 type nameFailAdapter struct {
-	failCreate, failUpdate string // resource name to fail, "" = never
+	failCreate string
+	failUpdate string
 }
 
 func (a nameFailAdapter) Create(_ context.Context, name string, _ ir.Resource, _ func(engine.Event)) (map[string]any, error) {
@@ -83,9 +83,20 @@ func (nameFailAdapter) Delete(_ context.Context, _ string, _ state.Resource, _ f
 // wired to fakes, so it never boots esbuild/goja and its "<name>: done"
 // progress lines land on out.
 func fakeEngineDeps(doc *ir.Document, current *state.State) deps {
-	registry := engine.NewRegistry()
-	registry.Register("docker", okAdapter{})
-	return engineDeps(doc, current, registry)
+	reg := testRegistry(map[string]engine.Adapter{"docker": okAdapter{}})
+	return engineDeps(doc, current, reg)
+}
+
+// testRegistry is a test helper: NewRegistry with a resolve that looks up
+// the name in a caller-supplied map.
+func testRegistry(adapters map[string]engine.Adapter) *engine.Registry {
+	return engine.NewRegistry(func(plugin string) (engine.Adapter, error) {
+		a, ok := adapters[plugin]
+		if !ok {
+			return nil, fmt.Errorf("no adapter registered for plugin %q", plugin)
+		}
+		return a, nil
+	})
 }
 
 // engineDeps is fakeEngineDeps with the caller's adapter registry.
