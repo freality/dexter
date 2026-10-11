@@ -21,9 +21,9 @@ func NewSynthesizer(b Bundler, e Evaluator) *Synthesizer {
 	return &Synthesizer{bundler: b, evaluator: e}
 }
 
-// Synth discovers dir's config files (dex.config.ts plus dex/services/**),
-// bundles them, and evaluates the result with env exposed to the SDK's
-// env() helper, returning the raw IR JSON bytes (SPEC.md §5.1).
+// Synth discovers dir's config files (dex.config.ts plus dex/services/** and
+// dex/commands/**), bundles them, and evaluates the result with env exposed
+// to the SDK's env() helper, returning the raw IR JSON bytes (SPEC.md §5.1).
 func (s *Synthesizer) Synth(ctx context.Context, dir string, env map[string]string) ([]byte, error) {
 	files, err := Discover(dir)
 	if err != nil {
