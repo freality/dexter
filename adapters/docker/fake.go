@@ -3,9 +3,11 @@ package docker
 import (
 	"context"
 	"fmt"
+	"iter"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/client"
 )
 
@@ -73,12 +75,21 @@ type fakePull struct {
 	ref string
 }
 
-func (p *fakePull) Wait(context.Context) error {
-	if err := p.f.call("ImagePull.Wait"); err != nil {
-		return err
+// JSONMessages reports one synthetic "Pull complete" layer message, then
+// marks the image present, matching the real daemon's final stream event.
+func (p *fakePull) JSONMessages(context.Context) iter.Seq2[jsonstream.Message, error] {
+	return func(yield func(jsonstream.Message, error) bool) {
+		if err := p.f.call("ImagePull.Wait"); err != nil {
+			yield(jsonstream.Message{}, err)
+			return
+		}
+		p.f.Images[p.ref] = true
+		yield(jsonstream.Message{
+			ID:       "layer",
+			Status:   "Pull complete",
+			Progress: &jsonstream.Progress{Current: 1, Total: 1},
+		}, nil)
 	}
-	p.f.Images[p.ref] = true
-	return nil
 }
 
 func (p *fakePull) Close() error { return nil }

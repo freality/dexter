@@ -49,6 +49,25 @@ function envFrom(source, key, fallback) {
   throw new DexError("MISSING_ENV", `environment variable "${key}" is not set and no fallback was provided`);
 }
 
+// packages/sdk/dist/commands.js
+function createCommandRegistry() {
+  const commands = /* @__PURE__ */ new Map();
+  return Object.freeze({
+    define(name, spec) {
+      if (commands.has(name)) {
+        throw new DexError("DUPLICATE_COMMAND", `command "${name}" is already defined`);
+      }
+      commands.set(name, spec);
+    },
+    get(name) {
+      return commands.get(name);
+    },
+    names() {
+      return [...commands.keys()].sort();
+    }
+  });
+}
+
 // packages/sdk/dist/registry.js
 function createResourceRegistry() {
   const nodes = /* @__PURE__ */ new Map();
@@ -125,6 +144,7 @@ function sanitizeProperties(resourceName, properties) {
 
 // packages/sdk/dist/resource.js
 var RESOURCE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+var PLUGIN_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 function defineResource(kind, collector) {
   return (name, spec) => {
     var _a, _b, _c;
@@ -136,6 +156,9 @@ function defineResource(kind, collector) {
     }
     if (typeof spec.plugin !== "string" || spec.plugin === "") {
       throw new DexError("INVALID_PLUGIN", `resource "${name}" must declare a non-empty plugin`);
+    }
+    if (!PLUGIN_NAME_PATTERN.test(spec.plugin)) {
+      throw new DexError("INVALID_PLUGIN", `resource "${name}" has an invalid plugin name "${spec.plugin}"`);
     }
     const properties = sanitizeProperties(name, (_a = spec.properties) != null ? _a : {});
     const deps = ((_b = spec.dependsOn) != null ? _b : []).map((entry) => {
@@ -168,9 +191,27 @@ function secret(key) {
 }
 
 // packages/sdk/dist/synth.js
+var PLUGIN_SPEC_PATTERN = /^github\.com\/[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*(@[^@]+)?$/;
 function buildIR(config, resources) {
   if (typeof config.project !== "string" || config.project === "") {
     throw new DexError("INVALID_PROJECT", "invalid project name: must be a non-empty string");
+  }
+  var plugins = [];
+  if (config.plugins !== void 0) {
+    if (!Array.isArray(config.plugins)) {
+      throw new DexError("INVALID_PLUGIN_SPEC", "plugins must be an array of strings");
+    }
+    var seen = /* @__PURE__ */ new Set();
+    for (var i = 0; i < config.plugins.length; i++) {
+      var spec = config.plugins[i];
+      if (typeof spec !== "string" || !PLUGIN_SPEC_PATTERN.test(spec)) {
+        throw new DexError("INVALID_PLUGIN_SPEC", 'invalid plugin spec "' + spec + '": must match github.com/<owner>/<repo>[@tag]');
+      }
+      if (!seen.has(spec)) {
+        seen.add(spec);
+        plugins.push(spec);
+      }
+    }
   }
   const byName = new Map(resources.map((node) => [node.name, node]));
   const out = {};
@@ -191,7 +232,7 @@ function buildIR(config, resources) {
       depends_on: [...node.dependsOn]
     };
   }
-  return { project: config.project, resources: out };
+  return { project: config.project, plugins, resources: out };
 }
 function stableStringify(value) {
   return JSON.stringify(value, (_key, val) => val !== null && typeof val === "object" && !Array.isArray(val) ? Object.fromEntries(Object.keys(val).sort().map((k) => [k, val[k]])) : val);
@@ -201,6 +242,7 @@ function stableStringify(value) {
 function createDexScope(options) {
   var _a;
   const registry = createResourceRegistry();
+  const commands = createCommandRegistry();
   const envSource = (_a = options == null ? void 0 : options.envSource) != null ? _a : createHostEnvSource();
   let config;
   const synth2 = () => {
@@ -222,6 +264,8 @@ function createDexScope(options) {
     network: defineResource("network", registry),
     env: (key, fallback) => envFrom(envSource, key, fallback),
     secret: (key) => secret(key),
+    defineCommand: (name, spec) => commands.define(name, spec),
+    commands,
     synth: synth2,
     synthJSON: () => stableStringify(synth2())
   });
@@ -229,6 +273,7 @@ function createDexScope(options) {
 
 // packages/sdk/dist/index.js
 var SYNTH_GLOBAL = "__dex_synth";
+var COMMANDS_GLOBAL = "__dex_commands";
 var defaultScope = createDexScope();
 var defineDexConfig = defaultScope.defineDexConfig;
 var service = defaultScope.service;
@@ -236,11 +281,19 @@ var volume = defaultScope.volume;
 var network = defaultScope.network;
 var env = defaultScope.env;
 var secret2 = defaultScope.secret;
+var defineCommand = defaultScope.defineCommand;
 var synth = defaultScope.synth;
 globalThis[SYNTH_GLOBAL] = defaultScope.synthJSON;
+globalThis[COMMANDS_GLOBAL] = () => defaultScope.commands.names().map((name) => {
+  var _a;
+  const spec = defaultScope.commands.get(name);
+  return { name, description: (_a = spec.description) != null ? _a : "", run: spec.run };
+});
 export {
+  COMMANDS_GLOBAL,
   DexError,
   SYNTH_GLOBAL,
+  defineCommand,
   defineDexConfig,
   env,
   network,

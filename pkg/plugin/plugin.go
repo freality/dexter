@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
+	"time"
 
 	"github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
@@ -65,6 +67,11 @@ type Adapter interface {
 var (
 	pluginServe     = goplugin.Serve
 	pluginNewClient = func(cfg *goplugin.ClientConfig) clientInterface { return goplugin.NewClient(cfg) }
+
+	// orphanCheckInterval and osExit are seams for watchOrphan's test.
+	orphanCheckInterval = time.Second
+	osExit              = os.Exit
+	osGetppid           = os.Getppid
 )
 
 type clientInterface interface {
@@ -74,6 +81,9 @@ type clientInterface interface {
 
 // Serve starts the plugin process. Call this from func main().
 func Serve(a Adapter) {
+	stop := make(chan struct{})
+	go watchOrphan(osGetppid(), stop)
+	defer close(stop)
 	pluginServe(&goplugin.ServeConfig{
 		HandshakeConfig: Handshake,
 		Plugins: goplugin.PluginSet{
@@ -81,6 +91,29 @@ func Serve(a Adapter) {
 		},
 		GRPCServer: goplugin.DefaultGRPCServer,
 	})
+}
+
+// watchOrphan exits the process once its parent has changed from startPPID
+// (reparented, e.g. to launchd/init on macOS/Linux), which is what happens
+// when the host (dex) dies without a chance to run its own cleanup — a
+// crash or SIGKILL, as opposed to a signal it can catch and clean up after.
+// go-plugin's own graceful-Kill path handles the orderly-exit case; this is
+// the fallback for the disorderly one, since there's no cross-platform
+// equivalent of Linux's PR_SET_PDEATHSIG available from Go.
+// stop ends the watch (closed by Serve once pluginServe returns, i.e. the
+// plugin is shutting down on its own and no longer needs watching).
+func watchOrphan(startPPID int, stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		case <-time.After(orphanCheckInterval):
+		}
+		if osGetppid() != startPPID {
+			osExit(1)
+			return
+		}
+	}
 }
 
 // Open connects to an adapter binary at path and returns an Adapter client.

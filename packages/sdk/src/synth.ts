@@ -1,10 +1,36 @@
 import { DexError } from "./errors.js";
 import type { DexConfig, DexIR, ResourceIR, ResourceNode } from "./types.js";
 
+// PLUGIN_SPEC_PATTERN validates plugin spec strings.
+// Format: github.com/<owner>/<repo>[@tag]
+var PLUGIN_SPEC_PATTERN = /^github\.com\/[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*(@[^@]+)?$/;
+
 /** Assembles the SPEC.md §5.1 IR, validating the project and dependency targets. */
 export function buildIR(config: DexConfig, resources: readonly ResourceNode[]): DexIR {
   if (typeof config.project !== "string" || config.project === "") {
     throw new DexError("INVALID_PROJECT", "invalid project name: must be a non-empty string");
+  }
+
+  // Validate and deduplicate plugins (order-preserving).
+  var plugins: string[] = [];
+  if (config.plugins !== undefined) {
+    if (!Array.isArray(config.plugins)) {
+      throw new DexError("INVALID_PLUGIN_SPEC", "plugins must be an array of strings");
+    }
+    var seen = new Set<string>();
+    for (var i = 0; i < config.plugins.length; i++) {
+      var spec = config.plugins[i];
+      if (typeof spec !== "string" || !PLUGIN_SPEC_PATTERN.test(spec)) {
+        throw new DexError(
+          "INVALID_PLUGIN_SPEC",
+          'invalid plugin spec "' + spec + '": must match github.com/<owner>/<repo>[@tag]',
+        );
+      }
+      if (!seen.has(spec)) {
+        seen.add(spec);
+        plugins.push(spec);
+      }
+    }
   }
 
   const byName = new Map(resources.map((node) => [node.name, node]));
@@ -26,7 +52,7 @@ export function buildIR(config: DexConfig, resources: readonly ResourceNode[]): 
       depends_on: [...node.dependsOn],
     };
   }
-  return { project: config.project, resources: out };
+  return { project: config.project, plugins, resources: out };
 }
 
 /** JSON.stringify with every object's keys sorted; byte-stable for state hashing. */

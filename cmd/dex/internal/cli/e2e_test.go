@@ -23,13 +23,20 @@ import (
 const e2eImage = "traefik/whoami:latest"
 
 type e2eProject struct {
-	t   *testing.T
-	dir string
+	t    *testing.T
+	dir  string
+	path string // saved PATH to restore on cleanup
 }
 
 func newE2EProject(t *testing.T) *e2eProject {
 	t.Helper()
 	p := &e2eProject{t: t, dir: t.TempDir()}
+	// Add bin/ to PATH so dex apply can find dex-adapter-docker.
+	oldPath := os.Getenv("PATH")
+	p.path = oldPath
+	binDir, _ := filepath.Abs("bin")
+	os.Setenv("PATH", binDir+":"+oldPath)
+	t.Cleanup(func() { os.Setenv("PATH", oldPath) })
 	if code, out := p.dex("init"); code != 0 {
 		t.Fatalf("dex init = %d: %s", code, out)
 	}
@@ -46,6 +53,13 @@ func (p *e2eProject) config(services map[string]string) {
 		p.t.Fatal(err)
 	}
 	servicesDir := filepath.Join(p.dir, "dex", "services")
+	// Fully replace the declared service set each call: dex init scaffolds
+	// dex/services/whoami.ts, and a prior config() call may have left other
+	// files here, so a stale file would otherwise keep showing up in every
+	// later plan (including config(nil), which must discover zero services).
+	if err := os.RemoveAll(servicesDir); err != nil {
+		p.t.Fatal(err)
+	}
 	if err := os.MkdirAll(servicesDir, 0o755); err != nil {
 		p.t.Fatal(err)
 	}

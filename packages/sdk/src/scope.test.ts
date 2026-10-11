@@ -55,6 +55,28 @@ describe("createDexScope", () => {
     expect(Object.isFrozen(ref)).toBe(true);
   });
 
+  it("registers commands behind defineCommand, listed in name order", () => {
+    const scope = createDexScope();
+    expect(scope.commands.names()).toEqual([]);
+    scope.defineCommand("hello", { description: "Say hello", run: (ctx) => ctx.args.length });
+    scope.defineCommand("z", { run: () => 0 });
+    expect(scope.commands.names()).toEqual(["hello", "z"]);
+    const cmd = scope.commands.get("hello");
+    expect(cmd?.description).toBe("Say hello");
+    expect(cmd?.run({ args: ["a", "b"] } as never)).toBe(2);
+  });
+
+  it("isolates commands between scopes, and synth ignores them", () => {
+    const a = createDexScope();
+    const b = createDexScope();
+    a.defineCommand("x", { run: () => 0 });
+    b.defineCommand("x", { run: () => 1 });
+    expect(a.commands.get("x")?.run({} as never)).toBe(0);
+    expect(b.commands.get("x")?.run({} as never)).toBe(1);
+    a.defineDexConfig({ project: "a" });
+    expect(a.synth()).toEqual({ project: "a", plugins: [], resources: {} });
+  });
+
   it("refuses to synth before a config is defined", () => {
     expectDexError(
       () => createDexScope().synth(),

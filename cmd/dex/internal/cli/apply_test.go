@@ -6,10 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/freality/dexter/pkg/engine"
 	"github.com/freality/dexter/pkg/engine/ir"
 	"github.com/freality/dexter/pkg/engine/state"
 )
 
+// TestApplyCommand... etc
 func TestApplyCmdYesFlag(t *testing.T) {
 	dir := t.TempDir()
 	mustRunInit(t, dir)
@@ -148,5 +150,94 @@ func TestApplyCmdApplyError(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "no adapter registered for plugin") {
 		t.Fatalf("Execute() error = %v", err)
+	}
+}
+
+// TestApplyOutputByteIdenticalSuccess proves `dex apply --yes` prints exactly
+// today's bytes: the plan, the "<name>: done" progress lines, and the summary
+// (W4a acceptance: a successful run's output is unchanged).
+func TestApplyOutputByteIdenticalSuccess(t *testing.T) {
+	dir := t.TempDir()
+	mustRunInit(t, dir)
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
+	}}
+	registry := testRegistry(map[string]engine.Adapter{"docker": okAdapter{}})
+	var out bytes.Buffer
+	cmd := newRootCmd(eventsEngineDeps(doc, state.New(), registry, applySink(&out)))
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"apply", "--dir", dir, "--yes"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := "\n  + a\n\n" +
+		"Plan: 1 to add, 0 to change, 0 to destroy.\n" +
+		"a: done\n" +
+		"Apply complete: 1 added, 0 changed, 0 destroyed.\n"
+	if out.String() != want {
+		t.Fatalf("out = %q, want %q", out.String(), want)
+	}
+}
+
+// TestApplyOutputByteIdenticalFailedCreate proves a failed create keeps
+// today's output: the done line only for what succeeded, the error returned
+// (Main prints it as "Error: ..."), and no summary line.
+func TestApplyOutputByteIdenticalFailedCreate(t *testing.T) {
+	dir := t.TempDir()
+	mustRunInit(t, dir)
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
+		"b": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
+	}}
+	registry := testRegistry(map[string]engine.Adapter{"docker": nameFailAdapter{failCreate: "b"}})
+	var out bytes.Buffer
+	cmd := newRootCmd(eventsEngineDeps(doc, state.New(), registry, applySink(&out)))
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"apply", "--dir", dir, "--yes"})
+
+	err := cmd.Execute()
+	if err == nil || err.Error() != "create b: boom" {
+		t.Fatalf("Execute() error = %v, want 'create b: boom'", err)
+	}
+	want := "\n  + a\n  + b\n\n" +
+		"Plan: 2 to add, 0 to change, 0 to destroy.\n" +
+		"a: done\n"
+	if out.String() != want {
+		t.Fatalf("out = %q, want %q", out.String(), want)
+	}
+	if strings.Contains(out.String(), "Apply complete") {
+		t.Fatalf("out = %q, want no summary after failure", out.String())
+	}
+}
+
+// TestApplyOutputByteIdenticalFailedUpdate proves a failed update returns
+// the wrapped error and prints no done line (today's behavior).
+func TestApplyOutputByteIdenticalFailedUpdate(t *testing.T) {
+	dir := t.TempDir()
+	mustRunInit(t, dir)
+	current := state.New()
+	current.Project = "p"
+	current.Resources["a"] = state.Resource{Type: "container", Plugin: "docker", Properties: map[string]any{"image": "v1"}}
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"a": {Type: "container", Plugin: "docker", Properties: map[string]any{"image": "v2"}, DependsOn: []string{}},
+	}}
+	registry := testRegistry(map[string]engine.Adapter{"docker": nameFailAdapter{failUpdate: "a"}})
+	var out bytes.Buffer
+	cmd := newRootCmd(eventsEngineDeps(doc, current, registry, applySink(&out)))
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"apply", "--dir", dir, "--yes"})
+
+	err := cmd.Execute()
+	if err == nil || err.Error() != "update a: boom" {
+		t.Fatalf("Execute() error = %v, want 'update a: boom'", err)
+	}
+	want := "\n  ~ a (image)\n\n" +
+		"Plan: 0 to add, 1 to change, 0 to destroy.\n"
+	if out.String() != want {
+		t.Fatalf("out = %q, want %q", out.String(), want)
+	}
+	if strings.Contains(out.String(), "done") {
+		t.Fatalf("out = %q, want no done line after failure", out.String())
 	}
 }

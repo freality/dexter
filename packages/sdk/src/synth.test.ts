@@ -24,11 +24,12 @@ function expectDexError(fn: () => unknown, code: DexErrorCode, message: string):
 }
 
 describe("buildIR", () => {
-  it("emits the SPEC IR shape with sorted keys and depends_on always present", () => {
-    const ir = buildIR({ project: "lab" }, [node("web", ["db"]), node("db")]);
+  it("emits the SPEC IR shape with sorted keys, depends_on, and plugins", () => {
+    const ir = buildIR({ project: "lab", plugins: ["github.com/freality/dexter@v1.0.0"] }, [node("web", ["db"]), node("db")]);
     expect(Object.keys(ir.resources)).toEqual(["db", "web"]);
     expect(ir).toEqual({
       project: "lab",
+      plugins: ["github.com/freality/dexter@v1.0.0"],
       resources: {
         db: { type: "container", plugin: "docker", properties: { image: "db:1" }, depends_on: [] },
         web: { type: "container", plugin: "docker", properties: { image: "web:1" }, depends_on: ["db"] },
@@ -36,7 +37,24 @@ describe("buildIR", () => {
     });
   });
 
-  it.each([[""], [1], [undefined]])("rejects project %s", (project) => {
+  it("defaults plugins to [] when omitted", () => {
+    const ir = buildIR({ project: "lab" }, []);
+    expect(ir.plugins).toEqual([]);
+  });
+
+  it("deduplicates plugin specs order-preserving", () => {
+    const ir = buildIR(
+      { project: "lab", plugins: ["github.com/a/b", "github.com/c/d", "github.com/a/b"] },
+      [],
+    );
+    expect(ir.plugins).toEqual(["github.com/a/b", "github.com/c/d"]);
+  });
+
+  it.each([
+    [""],
+    [1],
+    [undefined],
+  ])("rejects project %s", (project) => {
     expectDexError(
       () => buildIR({ project } as unknown as DexConfig, []),
       "INVALID_PROJECT",
@@ -58,6 +76,44 @@ describe("buildIR", () => {
       "INVALID_DEPENDENCY",
       'resource "web" cannot depend on itself',
     );
+  });
+
+  describe("plugins validation", () => {
+    it.each([
+      ["not-a-url"],
+      ["github.com/"],
+      ["github.com//repo"],
+      ["github.com/owner/"],
+      ["http://github.com/a/b"],
+      ["github.com/a/b@tag@x"],
+    ])("rejects malformed plugin spec %s", (spec) => {
+      expectDexError(
+        () => buildIR({ project: "lab", plugins: [spec] }, []),
+        "INVALID_PLUGIN_SPEC",
+        'invalid plugin spec "' + spec + '": must match github.com/<owner>/<repo>[@tag]',
+      );
+    });
+
+    it.each([
+      ["github.com/owner/repo"],
+      ["github.com/owner/repo-name"],
+      ["github.com/owner/repo.name"],
+      ["github.com/owner/repo_name"],
+      ["github.com/owner/repo@v1.0.0"],
+      ["github.com/owner/repo@latest"],
+      ["github.com/owner/repo@1.2.3-beta"],
+    ])("accepts valid plugin spec %s", (spec) => {
+      const ir = buildIR({ project: "lab", plugins: [spec] }, []);
+      expect(ir.plugins).toEqual([spec]);
+    });
+
+    it("rejects plugins that is not an array", () => {
+      expectDexError(
+        () => buildIR({ project: "lab", plugins: "nope" } as unknown as DexConfig, []),
+        "INVALID_PLUGIN_SPEC",
+        "plugins must be an array of strings",
+      );
+    });
   });
 });
 

@@ -45,7 +45,7 @@ func TestIntegrationLifecycle(t *testing.T) {
 	}
 	port1, port2 := freePort(t), freePort(t)
 
-	out, err := a.Create(ctx, name, "container", props("no", port1))
+	out, err := a.Create(ctx, name, "container", props("no", port1), &noopReporter{})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestIntegrationLifecycle(t *testing.T) {
 	}
 
 	// Restart-only change keeps the container.
-	out, err = a.Update(ctx, name, props("always", port1), props("no", port1))
+	out, err = a.Update(ctx, name, props("always", port1), props("no", port1), &noopReporter{})
 	if err != nil {
 		t.Fatalf("Update(restart) error = %v", err)
 	}
@@ -65,7 +65,7 @@ func TestIntegrationLifecycle(t *testing.T) {
 	}
 
 	// Any other change replaces it.
-	out, err = a.Update(ctx, name, props("always", port2), props("always", port1))
+	out, err = a.Update(ctx, name, props("always", port2), props("always", port1), &noopReporter{})
 	if err != nil {
 		t.Fatalf("Update(ports) error = %v", err)
 	}
@@ -75,7 +75,7 @@ func TestIntegrationLifecycle(t *testing.T) {
 
 	// Create over our own container claims it (real name-conflict error).
 	id = out["id"].(string)
-	out, err = a.Create(ctx, name, "container", props("always", port2))
+	out, err = a.Create(ctx, name, "container", props("always", port2), &noopReporter{})
 	if err != nil || out["id"] == id {
 		t.Fatalf("Create() over orphan = %v, %v; want a new container", out, err)
 	}
@@ -85,7 +85,7 @@ func TestIntegrationLifecycle(t *testing.T) {
 	if _, err := a.api.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Update(ctx, name, props("no", port2), props("always", port2)); err != nil {
+	if _, err := a.Update(ctx, name, props("no", port2), props("always", port2), &noopReporter{}); err != nil {
 		t.Fatalf("Update() of removed container error = %v", err)
 	}
 	if got := inspect(t, a, name); !got.State.Running {
@@ -98,7 +98,7 @@ func TestIntegrationLifecycle(t *testing.T) {
 	if err := a.Delete(ctx, name); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
-	_, err = a.Create(ctx, name, "container", props("no", port2, "--no-such-flag"))
+	_, err = a.Create(ctx, name, "container", props("no", port2, "--no-such-flag"), &noopReporter{})
 	if err == nil || !strings.Contains(err.Error(), "is not running after start (exit code 2)") {
 		t.Fatalf("Create() of crashing container error = %v", err)
 	}
@@ -122,7 +122,7 @@ func TestIntegrationRefusesForeignContainer(t *testing.T) {
 	}
 	ctx := context.Background()
 	name := fmt.Sprintf("dex-it-foreign-%d", time.Now().UnixNano())
-	if err := a.ensureImage(ctx, itImage); err != nil {
+	if err := a.ensureImage(ctx, itImage, &noopReporter{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.api.ContainerCreate(ctx, client.ContainerCreateOptions{Name: name, Config: &container.Config{Image: itImage}}); err != nil {
@@ -132,7 +132,7 @@ func TestIntegrationRefusesForeignContainer(t *testing.T) {
 		_, _ = a.api.ContainerRemove(context.Background(), name, client.ContainerRemoveOptions{Force: true})
 	})
 
-	_, err = a.Create(ctx, name, "container", map[string]any{"image": itImage})
+	_, err = a.Create(ctx, name, "container", map[string]any{"image": itImage}, &noopReporter{})
 	if err == nil || err.Error() != fmt.Sprintf("container %q exists and is not managed by dex", name) {
 		t.Fatalf("Create() error = %v", err)
 	}

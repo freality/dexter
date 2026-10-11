@@ -2,13 +2,34 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/freality/dexter/adapters/docker"
+	"github.com/freality/dexter/pkg/engine"
 	"github.com/freality/dexter/pkg/engine/ir"
 	"github.com/freality/dexter/pkg/engine/state"
 )
+
+// dockerEngineAdapter bridges *docker.Adapter to engine.Adapter for tests
+// that use the in-process Docker adapter with fake daemon.
+type dockerEngineAdapter struct {
+	d *docker.Adapter
+}
+
+func (a *dockerEngineAdapter) Create(ctx context.Context, name string, r ir.Resource, _ func(engine.Event)) (map[string]any, error) {
+	return a.d.Create(ctx, name, r.Type, r.Properties, nil)
+}
+
+func (a *dockerEngineAdapter) Update(ctx context.Context, name string, r ir.Resource, cur state.Resource, _ func(engine.Event)) (map[string]any, error) {
+	return a.d.Update(ctx, name, r.Properties, cur.Properties, nil)
+}
+
+func (a *dockerEngineAdapter) Delete(ctx context.Context, name string, cur state.Resource, _ func(engine.Event)) error {
+	return a.d.Delete(ctx, name)
+}
 
 // TestApplyDrivesDockerAdapter runs create, restart-only update, and delete
 // through `dex apply` with the real Docker adapter over an in-memory daemon.
@@ -24,7 +45,8 @@ func TestApplyDrivesDockerAdapter(t *testing.T) {
 		if props != nil {
 			doc.Resources["whoami"] = ir.Resource{Type: "container", Plugin: "docker", Properties: props, DependsOn: []string{}}
 		}
-		cmd := newRootCmd(engineDeps(doc, st, registryFor(docker.NewWithAPI(daemon))))
+		reg := testRegistry(map[string]engine.Adapter{"docker": &dockerEngineAdapter{d: docker.NewWithAPI(daemon)}})
+		cmd := newRootCmd(engineDeps(doc, st, reg))
 		var out bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetArgs([]string{"apply", "--dir", dir, "--yes"})
@@ -58,12 +80,53 @@ func TestApplyDrivesDockerAdapter(t *testing.T) {
 	}
 }
 
-func TestMainReportsBadDockerHost(t *testing.T) {
+// TestPlanNeverCallsResolve verifies that `dex plan` does not invoke the
+// registry's resolve function, even when the adapter binary is missing.
+// The resolve function panics if called, proving Plan doesn't touch it.
+func TestPlanNeverCallsResolve(t *testing.T) {
 	dir := t.TempDir()
 	mustRunInit(t, dir)
-	t.Setenv("DOCKER_HOST", "::not-a-host")
-	var out, errOut bytes.Buffer
-	if code := Main([]string{"plan", "--dir", dir}, strings.NewReader(""), &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "docker client: ") {
-		t.Fatalf("code = %d, stderr = %q", code, errOut.String())
+	st := state.New()
+
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"whoami": {Type: "container", Plugin: "docker", Properties: map[string]any{}, DependsOn: []string{}},
+	}}
+	registry := engine.NewRegistry(func(plugin string) (engine.Adapter, error) {
+		t.Fatal("resolve called during Plan (should not happen)")
+		return nil, fmt.Errorf("unreachable")
+	})
+
+	cmd := newRootCmd(engineDeps(doc, st, registry))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"plan", "--dir", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("plan error = %v", err)
+	}
+	if !strings.Contains(out.String(), "whoami") {
+		t.Fatalf("plan output = %q, want whoami listed", out.String())
+	}
+}
+
+// TestUnknownPluginError checks that apply fails with a clear "not installed"
+// error when the adapter binary is not found.
+func TestUnknownPluginError(t *testing.T) {
+	dir := t.TempDir()
+	mustRunInit(t, dir)
+	st := state.New()
+
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"svc": {Type: "container", Plugin: "missing-plugin", Properties: map[string]any{}, DependsOn: []string{}},
+	}}
+	registry := engine.NewRegistry(func(plugin string) (engine.Adapter, error) {
+		return nil, fmt.Errorf(`plugin %q not installed (run: dex plugin install)`, plugin)
+	})
+
+	cmd := newRootCmd(engineDeps(doc, st, registry))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"apply", "--dir", dir, "--yes"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatal("apply should have failed")
 	}
 }

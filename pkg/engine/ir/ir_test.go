@@ -130,6 +130,38 @@ func TestValidateRows(t *testing.T) {
 			wantReason: "must not be empty",
 		},
 		{
+			name: "invalid plugin name with dot",
+			doc: &Document{Project: "p", Resources: map[string]Resource{
+				"a": {Type: "t", Plugin: "my.plugin"},
+			}},
+			wantField:  `resources["a"].plugin`,
+			wantReason: "invalid plugin name",
+		},
+		{
+			name: "invalid plugin name with underscore",
+			doc: &Document{Project: "p", Resources: map[string]Resource{
+				"a": {Type: "t", Plugin: "my_plugin"},
+			}},
+			wantField:  `resources["a"].plugin`,
+			wantReason: "invalid plugin name",
+		},
+		{
+			name: "invalid plugin name with uppercase",
+			doc: &Document{Project: "p", Resources: map[string]Resource{
+				"a": {Type: "t", Plugin: "MyPlugin"},
+			}},
+			wantField:  `resources["a"].plugin`,
+			wantReason: "invalid plugin name",
+		},
+		{
+			name: "path-traversal plugin name",
+			doc: &Document{Project: "p", Resources: map[string]Resource{
+				"a": {Type: "t", Plugin: "../x"},
+			}},
+			wantField:  `resources["a"].plugin`,
+			wantReason: "invalid plugin name",
+		},
+		{
 			name: "self dependency",
 			doc: &Document{Project: "p", Resources: map[string]Resource{
 				"a": {Type: "t", Plugin: "p", DependsOn: []string{"a"}},
@@ -202,8 +234,8 @@ func TestValidateValidSecretToken(t *testing.T) {
 
 func TestValidateSecretTokenExtraField(t *testing.T) {
 	doc := &Document{Project: "p", Resources: map[string]Resource{
-		"svc": secretResource(map[string]any{"env": map[string]any{
-			"PASSWORD": map[string]any{"$dex_type": "secret", "provider": "env", "key": "DB_PWD", "sha256": "abc"},
+		"svc": secretResource(map[string]any{"env": []any{
+			map[string]any{"$dex_type": "secret", "provider": "env", "key": "x", "sha256": "abc"},
 		}}),
 	}}
 	err := doc.Validate()
@@ -211,11 +243,95 @@ func TestValidateSecretTokenExtraField(t *testing.T) {
 	if !errors.As(err, &ve) {
 		t.Fatalf("Validate() error = %v (%T), want *ValidationError", err, err)
 	}
-	if !strings.Contains(ve.Field, "properties.env.PASSWORD") || !strings.Contains(ve.Reason, "exactly 3 fields") {
-		t.Fatalf("Validate() = %+v, want extra-field rejection", ve)
+	if !strings.Contains(ve.Field, ".properties.env[0]") || !strings.Contains(ve.Reason, "exactly 3") {
+		t.Fatalf("Validate() = %+v, want extra-field rejection in array", ve)
 	}
 }
 
+// --- plugins field tests -----------------------------------------------------
+
+func TestPluginsDefaultsToEmpty(t *testing.T) {
+	doc := &Document{Project: "p", Resources: map[string]Resource{}}
+	if err := doc.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if len(doc.Plugins) != 0 {
+		t.Fatalf("doc.Plugins = %v, want []", doc.Plugins)
+	}
+}
+
+func TestPluginsParseRoundTrip(t *testing.T) {
+	data := []byte(`{
+		"project": "p",
+		"plugins": ["github.com/freality/dexter@v1.0.0"],
+		"resources": {}
+	}`)
+	doc, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(doc.Plugins) != 1 || doc.Plugins[0] != "github.com/freality/dexter@v1.0.0" {
+		t.Fatalf("doc.Plugins = %v, want [github.com/freality/dexter@v1.0.0]", doc.Plugins)
+	}
+	if doc.Project != "p" {
+		t.Fatalf("doc.Project = %q, want p", doc.Project)
+	}
+}
+
+func TestPluginsParseEmpty(t *testing.T) {
+	data := []byte(`{
+		"project": "p",
+		"plugins": [],
+		"resources": {}
+	}`)
+	doc, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(doc.Plugins) != 0 {
+		t.Fatalf("doc.Plugins = %v, want []", doc.Plugins)
+	}
+}
+
+func TestPluginsParseOmitsField(t *testing.T) {
+	// Old IR without "plugins" field should default to [].
+	data := []byte(`{
+		"project": "p",
+		"resources": {
+			"svc": {"type": "container", "plugin": "docker", "properties": {}, "depends_on": []}
+	}
+	}`)
+	doc, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(doc.Plugins) != 0 {
+		t.Fatalf("doc.Plugins = %v, want []", doc.Plugins)
+	}
+}
+
+func TestPluginsValidateRejectsMalformed(t *testing.T) {
+	doc := &Document{Project: "p", Plugins: []string{"not-a-url"}, Resources: map[string]Resource{}}
+	err := doc.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Validate() error = %v (%T), want *ValidationError", err, err)
+	}
+	if ve.Field != `plugins[0]` || !strings.Contains(ve.Reason, "invalid plugin spec") {
+		t.Fatalf("Validate() = %+v, want plugins[0] rejection", ve)
+	}
+}
+
+func TestPluginsValidateAcceptsValid(t *testing.T) {
+	doc := &Document{Project: "p", Plugins: []string{
+		"github.com/owner/repo",
+		"github.com/owner/repo@v1.0.0",
+		"github.com/owner/repo-name",
+	}, Resources: map[string]Resource{}}
+	if err := doc.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
 func TestValidateSecretTokenWrongProvider(t *testing.T) {
 	doc := &Document{Project: "p", Resources: map[string]Resource{
 		"svc": secretResource(map[string]any{"env": map[string]any{

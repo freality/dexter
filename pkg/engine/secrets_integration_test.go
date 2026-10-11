@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 
@@ -13,8 +14,7 @@ import (
 	"github.com/freality/dexter/pkg/engine/state"
 )
 
-// --- Secrets integration tests ------------------------------------------------
-
+// --- helpers ----------------------------------------------------------------
 func TestEnginePlanMissingSecretKeyInEnv(t *testing.T) {
 	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"svc": {Type: "container", Plugin: "docker", Properties: map[string]any{
@@ -49,13 +49,12 @@ func TestEngineCreateWithSecret(t *testing.T) {
 
 	var capturedProps map[string]any
 	adapter := adapterFunc{
-		create: func(_ context.Context, _ string, r ir.Resource) (map[string]any, error) {
+		create: func(_ context.Context, _ string, r ir.Resource, _ func(Event)) (map[string]any, error) {
 			capturedProps = r.Properties
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{
@@ -133,8 +132,7 @@ func TestEngineUpdateWithUnchangedSecret(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: current}
 	e := New(Options{
@@ -197,8 +195,7 @@ func TestEngineUpdateWithChangedSecret(t *testing.T) {
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: current}
 	e := New(Options{
@@ -243,12 +240,11 @@ func TestEngineApplyLeakGuard(t *testing.T) {
 	}}
 
 	adapter := adapterFunc{
-		create: func(_ context.Context, _ string, _ ir.Resource) (map[string]any, error) {
+		create: func(_ context.Context, _ string, _ ir.Resource, _ func(Event)) (map[string]any, error) {
 			return map[string]any{"id": "contains-supersecret-value"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{
@@ -272,6 +268,59 @@ func TestEngineApplyLeakGuard(t *testing.T) {
 	}
 }
 
+// TestEngineApplyLeakGuardOnAdapterError verifies the leak guard also fires
+// when the adapter returns a partial outputs map alongside an error (the
+// common "created it, then the follow-up step failed" shape): the leaked
+// value must not reach the tainted state entry persisted for the attempt.
+func TestEngineApplyLeakGuardOnAdapterError(t *testing.T) {
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"svc": {Type: "container", Plugin: "docker", Properties: map[string]any{
+			"image": "img",
+			"env": map[string]any{
+				"PASSWORD": map[string]any{"$dex_type": "secret", "provider": "env", "key": "DB_PWD"},
+			},
+		}},
+	}}
+
+	adapter := adapterFunc{
+		create: func(_ context.Context, _ string, _ ir.Resource, _ func(Event)) (map[string]any, error) {
+			return map[string]any{"id": "contains-supersecret-value"}, errors.New("boom")
+		},
+	}
+	registry := NewRegistry(resolveOne("docker", adapter))
+
+	store := &fakeStore{st: state.New()}
+	e := New(Options{
+		Synth:    fakeSynth(t, doc),
+		Store:    store,
+		Lock:     &fakeLocker{},
+		Registry: registry,
+		Env:      map[string]string{"DB_PWD": "supersecret"},
+	})
+
+	plan, err := e.Plan(context.Background(), entryDir)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	_, err = e.Apply(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "leaks secret") {
+		t.Fatalf("Apply() error = %v, want it to mention the leak guard", err)
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("Apply() error = %v, want the adapter's own error preserved too", err)
+	}
+
+	saved := store.st.Resources["svc"]
+	if !saved.Tainted {
+		t.Fatal("svc should be persisted tainted after a failed create")
+	}
+	for _, v := range saved.Outputs {
+		if s, ok := v.(string); ok && strings.Contains(s, "supersecret") {
+			t.Fatalf("state.json carries the leaked plaintext: outputs = %+v", saved.Outputs)
+		}
+	}
+}
+
 func TestEngineCreateWithMultipleSecrets(t *testing.T) {
 	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
 		"svc": {Type: "container", Plugin: "docker", Properties: map[string]any{
@@ -284,13 +333,12 @@ func TestEngineCreateWithMultipleSecrets(t *testing.T) {
 
 	var capturedProps map[string]any
 	adapter := adapterFunc{
-		create: func(_ context.Context, _ string, r ir.Resource) (map[string]any, error) {
+		create: func(_ context.Context, _ string, r ir.Resource, _ func(Event)) (map[string]any, error) {
 			capturedProps = r.Properties
 			return map[string]any{"id": "abc"}, nil
 		},
 	}
-	registry := NewRegistry()
-	registry.Register("docker", adapter)
+	registry := NewRegistry(resolveOne("docker", adapter))
 
 	store := &fakeStore{st: state.New()}
 	e := New(Options{
@@ -324,15 +372,15 @@ type updateCaptureAdapter struct {
 	update func(context.Context, string, map[string]any, map[string]any) (map[string]any, error)
 }
 
-func (a *updateCaptureAdapter) Create(_ context.Context, _ string, _ ir.Resource) (map[string]any, error) {
+func (a *updateCaptureAdapter) Create(_ context.Context, _ string, _ ir.Resource, _ func(Event)) (map[string]any, error) {
 	return nil, nil
 }
 
-func (a *updateCaptureAdapter) Update(ctx context.Context, name string, r ir.Resource, cur state.Resource) (map[string]any, error) {
+func (a *updateCaptureAdapter) Update(ctx context.Context, name string, r ir.Resource, cur state.Resource, _ func(Event)) (map[string]any, error) {
 	return a.update(ctx, name, r.Properties, cur.Properties)
 }
 
-func (a *updateCaptureAdapter) Delete(_ context.Context, _ string, _ state.Resource) error {
+func (a *updateCaptureAdapter) Delete(_ context.Context, _ string, _ state.Resource, _ func(Event)) error {
 	return nil
 }
 
