@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/freality/dexter/pkg/engine/ir"
+	"github.com/freality/dexter/pkg/engine/state"
 )
 
 // --- helpers ----------------------------------------------------------------
@@ -46,11 +50,11 @@ func checksumsBody(assetsName []string) string {
 
 // requestBase computes scheme://host:port from the request for building absolute URLs.
 func requestBase(r *http.Request) string {
-	s := fmt.Sprintf("%s://%s", r.URL.Scheme, r.URL.Host)
-	if port := r.URL.Port(); port != "" && port != "0" {
-		s += fmt.Sprintf(":%s", port)
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
 	}
-	return s
+	return fmt.Sprintf("%s://%s", scheme, r.Host)
 }
 
 // taggedHandler returns an httptest-compatible handler that serves release
@@ -68,7 +72,11 @@ func taggedHandler(tag string, assets []string, setToken func(string)) func(http
 				setToken(auth)
 			}
 			w.WriteHeader(200)
-			io.WriteString(w, releaseBody(requestBase(r), tag, assets))
+			// Include checksums.txt as a release asset so installSpec can find it.
+			allAssets := make([]string, len(assets)+1)
+			allAssets[0] = "checksums.txt"
+			copy(allAssets[1:], assets)
+			io.WriteString(w, releaseBody(requestBase(r), tag, allAssets))
 			return
 		}
 
@@ -82,7 +90,7 @@ func taggedHandler(tag string, assets []string, setToken func(string)) func(http
 			}
 			hdrs.Set("Content-Type", "application/octet-stream")
 			w.WriteHeader(200)
-			io.WriteString(w, name + name + name)
+			io.WriteString(w, name+name+name)
 			return
 		}
 
@@ -257,7 +265,8 @@ func TestPluginAddChecksumMismatch(t *testing.T) {
 		path := r.URL.Path
 		if strings.Contains(path, "/repos/") || strings.Contains(path, "latest") || strings.Contains(path, "tags/") {
 			w.WriteHeader(200)
-			io.WriteString(w, releaseBody(requestBase(r), "v1.0.0", []string{"dex-adapter-docker_darwin_arm64"}))
+			// Include checksums.txt so installSpec can find and verify it.
+			io.WriteString(w, releaseBody(requestBase(r), "v1.0.0", []string{"checksums.txt", "dex-adapter-docker_darwin_arm64"}))
 			return
 		}
 		if strings.Contains(path, "/assets/") {
@@ -429,7 +438,7 @@ func TestDownloadAndVerifySuccess(t *testing.T) {
 	defer srv.Close()
 
 	dest := filepath.Join(dir, "result.bin")
-	err := downloadAndVerify(srv.URL + "/data", dest, hash)
+	err := downloadAndVerify(srv.URL+"/data", dest, hash)
 	if err != nil {
 		t.Fatalf("downloadAndVerify error = %v", err)
 	}
@@ -452,7 +461,7 @@ func TestDownloadAndVerifyChecksumMismatch(t *testing.T) {
 	defer srv.Close()
 
 	dest := filepath.Join(dir, "result.bin")
-	err := downloadAndVerify(srv.URL + "/data", dest, "0000")
+	err := downloadAndVerify(srv.URL+"/data", dest, "0000")
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("err = %v, want checksum mismatch", err)
 	}
@@ -496,11 +505,19 @@ func TestFetchRelease(t *testing.T) {
 	if ri.TagName != "v3.0.0" {
 		t.Fatalf("TagName = %q, want v3.0.0", ri.TagName)
 	}
-	if len(ri.Assets) != 1 {
-		t.Fatalf("Assets = %v, want 1 asset", ri.Assets)
+	// taggedHandler adds checksums.txt + the test asset.
+	if len(ri.Assets) < 1 {
+		t.Fatalf("Assets = %v, want at least 1 asset", ri.Assets)
 	}
-	if ri.Assets[0].Name != "dex-adapter-foo_darwin_arm64" {
-		t.Fatalf("asset name = %q", ri.Assets[0].Name)
+	found := false
+	for _, a := range ri.Assets {
+		if a.Name == "dex-adapter-foo_darwin_arm64" && strings.HasPrefix(a.URL, srv.URL) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected asset dex-adapter-foo_darwin_arm64 not found in release")
 	}
 }
 
@@ -536,4 +553,394 @@ func TestDownloadBytes404(t *testing.T) {
 	}
 }
 
-// --- envMap is tested in root_test.go already --------------------------------
+// --- newPluginCmd tests (cli command invocation) -----------------------------
+
+func TestPluginAddNoArgs(t *testing.T) {
+	dir := t.TempDir()
+	cmd := newRootCmd(fakeEngineDeps(nil, state.New()))
+	cmd.SetArgs([]string{"plugin", "add", "--dir", dir})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error for add with no args")
+	}
+}
+
+func TestPluginInstallNoPlugins(t *testing.T) {
+	dir := t.TempDir()
+	mustRunInit(t, dir)
+	// Override installBaseURL to a URL that fails fast so the test doesn't hang.
+	installBaseURL = "http://127.0.0.1:1/nonexistent"
+	defer func() { installBaseURL = "https://api.github.com" }()
+
+	cmd := newRootCmd(fakeEngineDeps(&ir.Document{Project: "p", Resources: map[string]ir.Resource{}}, state.New()))
+	cmd.SetArgs([]string{"plugin", "install", "--dir", dir})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v (expected: no plugins declared message)", err)
+	}
+	if !strings.Contains(out.String(), "No plugins declared in dex.config.ts") {
+		t.Fatalf("out = %q, want 'No plugins declared' message", out.String())
+	}
+}
+
+// --- assetOS / assetArch coverage -------------------------------------------
+
+func TestAssetOSDarwin(t *testing.T) {
+	gos := assetOS()
+	if gos != "darwin" && gos != "linux" && gos != "windows" {
+		t.Fatalf("assetOS() = %q, unexpected value", gos)
+	}
+	// We accept any valid OS; this just calls the function for coverage.
+}
+
+func TestAssetArchARM64(t *testing.T) {
+	ga := assetArch()
+	if ga != "amd64" && ga != "arm64" {
+		t.Fatalf("assetArch() = %q, unexpected value", ga)
+	}
+	// Same as above: ensure the function is called.
+}
+
+// --- isAlreadyInstalled edge cases ------------------------------------------
+
+func TestIsAlreadyInstalledStatError(t *testing.T) {
+	// Missing file already tested in TestIsAlreadyInstalledMissing.
+	// Test a permission-denied path (dir instead of file).
+	dir := t.TempDir()
+	if isAlreadyInstalled(dir, "hash") {
+		t.Fatal("isAlreadyInstalled on directory returned true")
+	}
+}
+
+// --- downloadAndVerify edge cases ------------------------------------------
+
+func TestDownloadAndVerifyDownloadError(t *testing.T) {
+	dir := t.TempDir()
+	err := downloadAndVerify("http://127.0.0.1:1/does-not-exist", filepath.Join(dir, "out"), "hash")
+	if err == nil {
+		t.Fatal("downloadAndVerify with bad URL should fail")
+	}
+}
+
+// --- fetchRelease error paths ------------------------------------------------
+
+func TestFetchRelease404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	_, err := fetchRelease(srv.URL, "owner", "repo", "v1.0.0")
+	if err == nil || !strings.Contains(err.Error(), "release not found") {
+		t.Fatalf("err = %v, want 'release not found'", err)
+	}
+}
+
+func TestFetchReleaseNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	_, err := fetchRelease(srv.URL, "owner", "repo", "")
+	if err == nil || !strings.Contains(err.Error(), "HTTP 500") {
+		t.Fatalf("err = %v, want HTTP 500 error", err)
+	}
+}
+
+func TestFetchReleaseBadJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		io.WriteString(w, "not json")
+	}))
+	defer srv.Close()
+
+	_, err := fetchRelease(srv.URL, "owner", "repo", "")
+	if err == nil || !strings.Contains(err.Error(), "parse release JSON") {
+		t.Fatalf("err = %v, want 'parse release JSON' error", err)
+	}
+}
+
+func TestFetchRelease403Retry(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		if callCount == 1 {
+			w.WriteHeader(403)
+			io.WriteString(w, `{"message":"rate limited"}`)
+			return
+		}
+		w.WriteHeader(200)
+		io.WriteString(w, `{"tag_name":"v1","assets":[]}`)
+	}))
+	defer srv.Close()
+
+	ri, err := fetchRelease(srv.URL, "owner", "repo", "")
+	if err != nil {
+		t.Fatalf("fetchRelease error = %v (expected retry to succeed)", err)
+	}
+	if ri.TagName != "v1" {
+		t.Fatalf("TagName = %q, want v1", ri.TagName)
+	}
+	if callCount != 2 {
+		t.Fatalf("handler called %d times, want 2 (first 403, then 200)", callCount)
+	}
+}
+
+func TestFetchRelease403Twice(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(403)
+		io.WriteString(w, `{"message":"rate limited"}`)
+	}))
+	defer srv.Close()
+
+	_, err := fetchRelease(srv.URL, "owner", "repo", "")
+	if err == nil || !strings.Contains(err.Error(), "HTTP 403") {
+		t.Fatalf("err = %v, want HTTP 403 error after retry", err)
+	}
+}
+
+// --- downloadBytes error: request creation ---------------------------------
+
+func TestDownloadBytesBadURL(t *testing.T) {
+	_, err := downloadBytes("://bad-url")
+	if err == nil {
+		t.Fatal("downloadBytes with bad URL should fail")
+	}
+}
+
+// --- fetchRelease request creation error ----------------------------------
+
+func TestFetchReleaseBadBaseURL(t *testing.T) {
+	_, err := fetchRelease("://bad", "owner", "repo", "")
+	if err == nil {
+		t.Fatal("fetchRelease with bad baseURL should fail")
+	}
+}
+
+// --- newPluginCmd remaining branches -----------------------------------------
+
+func TestPluginAddInstallSpecError(t *testing.T) {
+	oldBase := installBaseURL
+	installBaseURL = "http://127.0.0.1:1/"
+	defer func() { installBaseURL = oldBase }()
+
+	cmd := newRootCmd(fakeEngineDeps(nil, state.New()))
+	cmd.SetArgs([]string{"plugin", "add", "--dir", t.TempDir(), "github.com/fake/owner@v1.0.0"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Expected installSpec error, got nil")
+	}
+}
+
+func TestPluginAddInvalidSpec(t *testing.T) {
+	cmd := newRootCmd(fakeEngineDeps(nil, state.New()))
+	cmd.SetArgs([]string{"plugin", "add", "--dir", t.TempDir(), "not-a-valid-spec"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "invalid plugin spec") {
+		t.Fatalf("Expected invalid plugin spec error, got: %v", err)
+	}
+}
+
+func TestPluginInstallEngineError(t *testing.T) {
+	cmd := newRootCmd(failingEngineDeps(errors.New("engine fail")))
+	cmd.SetArgs([]string{"plugin", "install", "--dir", t.TempDir()})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "engine fail") {
+		t.Fatalf("Expected engine error, got: %v", err)
+	}
+}
+
+// installSpec error: mkdir failure
+func TestInstallSpecMkdirError(t *testing.T) {
+	dir := t.TempDir()
+	// Make .dex a file so MkdirAll(".dex/plugins") fails.
+	if err := os.WriteFile(filepath.Join(dir, ".dex"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := installSpec(dir, "github.com/owner/repo", "http://127.0.0.1:1/", io.Discard)
+	if err == nil {
+		t.Fatal("Expected mkdir error, got nil")
+	}
+}
+
+// downloadAndVerify WriteFile failure (tmpPath is a dir)
+func TestDownloadAndVerifyWriteFail(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		io.WriteString(w, "test content")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(handler))
+	defer srv.Close()
+
+	h := sha256.Sum256([]byte("test content"))
+	var buf []byte
+	for i := range h {
+		buf = append(buf, h[i])
+	}
+	expectedHash := hex.EncodeToString(buf)
+
+	dir := t.TempDir()
+	// Point dest at a path in a non-existent directory so WriteFile(tmpPath) fails.
+	dest := filepath.Join(dir, "nonexistent", "out")
+	err := downloadAndVerify(srv.URL+"/data", dest, expectedHash)
+	if err == nil {
+		t.Fatalf("Expected write error, got nil")
+	}
+}
+
+// downloadAndVerify Rename failure
+func TestDownloadAndVerifyRenameFail(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		io.WriteString(w, "renametest")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(handler))
+	defer srv.Close()
+
+	h := sha256.Sum256([]byte("renametest"))
+	var buf []byte
+	for i := range h {
+		buf = append(buf, h[i])
+	}
+	expectedHash := hex.EncodeToString(buf)
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "out")
+	// Create a directory at dest so rename over it fails.
+	if err := os.Mkdir(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := downloadAndVerify(srv.URL+"/data", dest, expectedHash)
+	if err == nil {
+		t.Fatal("Expected rename error, got nil")
+	}
+}
+
+// --- synthesizeDoc tests ----------------------------------------------------
+
+func TestSynthDocMissingConfig(t *testing.T) {
+	dir := t.TempDir()
+	// No dex.config.ts - synthesizeDoc should error.
+	_, err := synthesizeDoc(nil, dir)
+	if err == nil {
+		t.Fatal("Expected error from synth with missing dex.config.ts")
+	}
+}
+
+func TestPluginInstallWithPluginsDeclared(t *testing.T) {
+	dir := t.TempDir()
+	// Create a minimal project that declares plugins.
+	if err := os.WriteFile(filepath.Join(dir, "dex.config.ts"), []byte(`import { defineDexConfig } from "@dex/iac";
+	defineDexConfig({ project: "p", plugins: ["github.com/owner/repo@v1.0.0"] });
+	`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Need dex/services directory for Discover's error message not to fire first.
+	// Actually, Discover fails on missing dex.config.ts only, services dir is optional.
+
+	oldBase := installBaseURL
+	installBaseURL = "http://127.0.0.1:1/"
+	defer func() { installBaseURL = oldBase }()
+
+	// Use the production deps (real engine) so the plugin spec flows through.
+	// Note: runPluginInstall creates its own real synth, so deps are used only for the engine
+	// (which is needed for the synth call). Use productionDeps for the real engine.
+	cmd := newRootCmd(productionDeps())
+	cmd.SetArgs([]string{"plugin", "install", "--dir", dir})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Expected install error from network failure, got nil")
+	}
+}
+
+// --- downloadAndVerify download fail ---------------------------------------
+
+func TestDownloadAndVerifyDownloadFail(t *testing.T) {
+	dir := t.TempDir()
+	err := downloadAndVerify("http://127.0.0.1:1/blob", filepath.Join(dir, "out"), "abcdef")
+	if err == nil || !strings.Contains(err.Error(), "download") {
+		t.Fatalf("Expected download error, got: %v", err)
+	}
+}
+
+// TestRunPluginInstallSynthError: runPluginInstall's error from synthesizeDoc
+func TestRunPluginInstallSynthError(t *testing.T) {
+	dir := t.TempDir()
+	// Write a dex.config.ts with a syntax error.
+	if err := os.WriteFile(filepath.Join(dir, "dex.config.ts"), []byte(`const x = ;`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := runPluginInstall(dir, productionDeps(), io.Discard)
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+}
+
+// TestSynthesizeDocParseError: ir.Parse fails
+func TestSynthesizeDocParseError(t *testing.T) {
+	// ir.Parse fails when the JSON is valid but validation fails.
+	// Create minimal IR that fails validation - e.g., a resource with an invalid name.
+	data, err := ir.Parse([]byte(`{"project":"p","plugins":[],"resources":{"":{"type":"container","plugin":"docker","properties":{},"depends_on":[]}}}`))
+	if err == nil {
+		t.Fatal("Expected ir.Parse error for empty resource name, got nil")
+	}
+	if data != nil {
+		t.Fatal("ir.Parse returned non-nil document on error")
+	}
+	// Also test: invalid plugin name (spaces not allowed by PluginNamePattern)
+	_, err2 := ir.Parse([]byte(`{"project":"p","plugins":[],"resources":{"a":{"type":"container","plugin":"bad plugin","properties":{},"depends_on":[]}}}`))
+	if err2 == nil {
+		t.Fatal("Expected ir.Parse error for invalid plugin name")
+	}
+}
+
+// TestInstallSpecAssetMissingFromChecksum: asset matches but checksums.txt doesn't have it
+func TestInstallSpecAssetMissingFromChecksum(t *testing.T) {
+	dir := t.TempDir()
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if strings.Contains(path, "/repos/") || strings.Contains(path, "latest") || strings.Contains(path, "tags/") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(200)
+			// Include checksums.txt in release but make it not include one of the assets
+			base := requestBase(r)
+			body := fmt.Sprintf(`{"tag_name":"v1","assets":[{"name":"checksums.txt","browser_download_url":"%s/assets/checksums.txt","size":1},{"name":"dex-adapter-docker_%s_%s","browser_download_url":"%s/assets/dex-adapter-docker_%s_%s","size":1},{"name":"dex-adapter-proxmox_%s_%s","browser_download_url":"%s/assets/dex-adapter-proxmox_%s_%s","size":1}]}`, base, assetOS(), assetArch(), base, assetOS(), assetArch(), assetOS(), assetArch(), base, assetOS(), assetArch())
+			io.WriteString(w, body)
+			return
+		}
+		if strings.Contains(path, "/assets/checksums.txt") {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(200)
+			// Only include docker, NOT proxmox
+			h := sha256.Sum256([]byte("dex-adapter-docker_" + assetOS() + "_" + assetArch() + "dex-adapter-docker_" + assetOS() + "_" + assetArch() + "dex-adapter-docker_" + assetOS() + "_" + assetArch()))
+			var buf []byte
+			for i := range h {
+				buf = append(buf, h[i])
+			}
+			io.WriteString(w, hex.EncodeToString(buf)+"  dex-adapter-docker_"+assetOS()+"_"+assetArch()+"\n")
+			return
+		}
+		if strings.Contains(path, "/assets/") {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.WriteHeader(200)
+			namePart := path[len("/assets/"):]
+			io.WriteString(w, namePart+namePart+namePart)
+			return
+		}
+		w.WriteHeader(404)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(handler))
+	defer srv.Close()
+
+	var out bytes.Buffer
+	err := installSpec(dir, "github.com/owner/repo", srv.URL, &out)
+	if err == nil {
+		t.Fatalf("Expected error (proxmox missing from checksums), got nil, out=%q", out.String())
+	}
+	if !strings.Contains(out.String(), "installed dex-adapter-docker") {
+		t.Fatalf("docker should have been installed, out=%q", out.String())
+	}
+	if !strings.Contains(err.Error(), "not found in checksums.txt") {
+		t.Fatalf("err = %v, want 'not found in checksums.txt'", err)
+	}
+}

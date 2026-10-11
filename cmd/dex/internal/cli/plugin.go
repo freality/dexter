@@ -46,7 +46,7 @@ func newPluginCmd(dir *string, d deps) *cobra.Command {
 				return fmt.Errorf("usage: dex plugin add github.com/<owner>/<repo>[@tag]")
 			}
 			spec := args[0]
-			if err := installSpec(*dir, spec, "https://api.github.com", cmd.OutOrStdout()); err != nil {
+			if err := installSpec(*dir, spec, installBaseURL, cmd.OutOrStdout()); err != nil {
 				return err
 			}
 			return nil
@@ -84,7 +84,7 @@ func runPluginInstall(dir string, d deps, w io.Writer) error {
 	}
 	var errs []error
 	for _, spec := range desired.Plugins {
-		if installErr := installSpec(dir, spec, "https://api.github.com", w); installErr != nil {
+		if installErr := installSpec(dir, spec, installBaseURL, w); installErr != nil {
 			errs = append(errs, installErr)
 		}
 	}
@@ -114,13 +114,16 @@ func synthesizeDoc(e *engine.Engine, dir string) (*ir.Document, error) {
 // PluginSpecPattern validates plugin spec strings (same pattern as SDK).
 var PluginSpecPattern = regexp.MustCompile(`^github\.com/[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._-]*(@[^@]+)?$`)
 
+// installBaseURL is the GitHub API base URL. Override in tests.
+var installBaseURL = "https://api.github.com"
+
 // specParts splits "github.com/<owner>/<repo>[@tag]" into (owner, repo, tag).
 // tag is "" when no @tag is present; returns an error for malformed specs.
 func specParts(spec string) (owner string, repo string, tag string, err error) {
 	if !PluginSpecPattern.MatchString(spec) {
 		return "", "", "", fmt.Errorf("invalid plugin spec %q: must match github.com/<owner>/<repo>[@tag]", spec)
 	}
-	rest := spec[10:] // after "github.com/"
+	rest := spec[11:] // after "github.com/"
 	at := strings.Index(rest, "@")
 	if at >= 0 {
 		owner = rest[:at]
@@ -146,12 +149,16 @@ func installSpec(dir, spec, baseURL string, w io.Writer) error {
 	}
 
 	pluginsDir := filepath.Join(dir, ".dex", "plugins")
-	if err := os.MkdirAll(pluginsDir, 0o755); err != nil {
+	if err = os.MkdirAll(pluginsDir, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", pluginsDir, err)
 	}
 
 	// Fetch release info.
-	release, err := fetchRelease(baseURL, owner, repo, tag)
+	var (
+		release       *releaseInfo
+		checksumsBody []byte
+	)
+	release, err = fetchRelease(baseURL, owner, repo, tag)
 	if err != nil {
 		return err
 	}
@@ -161,7 +168,7 @@ func installSpec(dir, spec, baseURL string, w io.Writer) error {
 	if checksumsURL == "" {
 		return fmt.Errorf("release for %s/%s has no checksums.txt asset", owner, repo)
 	}
-	checksumsBody, err := downloadBytes(checksumsURL)
+	checksumsBody, err = downloadBytes(checksumsURL)
 	if err != nil {
 		return fmt.Errorf("download checksums.txt: %w", err)
 	}
@@ -253,8 +260,9 @@ func fetchRelease(baseURL, owner, repo, tag string) (*releaseInfo, error) {
 	}
 
 	var body []byte
+	var fetchOK bool
 	for range 2 {
-		var hdrs http.Header
+		hdrs := make(http.Header)
 		hdrs["Accept"] = []string{"application/vnd.github+json"}
 		if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 			hdrs["Authorization"] = []string{"Bearer " + token}
@@ -281,6 +289,7 @@ func fetchRelease(baseURL, owner, repo, tag string) (*releaseInfo, error) {
 			return nil, fmt.Errorf("read release response: %w", err)
 		}
 		if resp.StatusCode == 200 {
+			fetchOK = true
 			break
 		}
 		if resp.StatusCode == 404 {
@@ -290,6 +299,9 @@ func fetchRelease(baseURL, owner, repo, tag string) (*releaseInfo, error) {
 			continue // retry once on rate limit
 		}
 		return nil, fmt.Errorf("fetch release %s: HTTP %d", apiURL, resp.StatusCode)
+	}
+	if !fetchOK {
+		return nil, fmt.Errorf("fetch release %s: HTTP 403 (rate limited after retry)", apiURL)
 	}
 
 	// Parse GitHub release JSON.
@@ -317,27 +329,11 @@ func fetchRelease(baseURL, owner, repo, tag string) (*releaseInfo, error) {
 // --- asset OS/arch helpers ------------------------------------------------
 
 func assetOS() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return "darwin"
-	case "linux":
-		return "linux"
-	case "windows":
-		return "windows"
-	default:
-		return runtime.GOOS
-	}
+	return runtime.GOOS
 }
 
 func assetArch() string {
-	switch runtime.GOARCH {
-	case "amd64", "x86_64":
-		return "amd64"
-	case "arm64", "aarch64":
-		return "arm64"
-	default:
-		return runtime.GOARCH
-	}
+	return runtime.GOARCH
 }
 
 // --- checksums ------------------------------------------------------------
@@ -368,7 +364,7 @@ func parseChecksums(text string) map[string]string {
 		if parts := strings.Fields(line); len(parts) >= 2 {
 			hash := parts[0]
 			name := parts[len(parts)-1]
-			if len(hash) == 64 && isHexString(hash) {
+			if len(hash) > 0 && isHexString(hash) {
 				result[name] = hash
 			}
 		}
@@ -387,8 +383,9 @@ func isAlreadyInstalled(dest, expectedHash string) bool {
 	if err != nil {
 		return false
 	}
-	got := hex.EncodeToString(data)
-	return got == expectedHash
+	got := sha256.Sum256(data)
+	gotHex := hex.EncodeToString(got[:])
+	return gotHex == expectedHash
 }
 
 // downloadAndVerify downloads a URL to a .tmp file, checks the sha256,
@@ -409,10 +406,17 @@ func downloadAndVerify(url, dest, expectedHash string) error {
 		hashSlice = append(hashSlice, hashBytes[i])
 	}
 	got := hex.EncodeToString(hashSlice)
+	expectedPrefix, gotPrefix := expectedHash, got
+	if len(expectedPrefix) > 12 {
+		expectedPrefix = expectedPrefix[:12]
+	}
+	if len(gotPrefix) > 12 {
+		gotPrefix = gotPrefix[:12]
+	}
 	if got != expectedHash {
 		return fmt.Errorf(
 			"checksum mismatch for %s: expected %s, got %s",
-			filepath.Base(dest), expectedHash[:12], got[:12],
+			filepath.Base(dest), expectedPrefix, gotPrefix,
 		)
 	}
 

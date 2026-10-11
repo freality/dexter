@@ -57,7 +57,6 @@ var pluginOpen = plugin.Open
 // "dex plugin add <repo>". Lookup order:
 //
 //	<dir>/.dex/plugins/dex-adapter-<name>  then  exec.LookPath("dex-adapter-<name>")
-//
 func resolvePlugin(dir string, declaredSpecs []string) func(plugin string) (engine.Adapter, error) {
 	return func(plugin string) (engine.Adapter, error) {
 		// Try the project-local plugins directory first.

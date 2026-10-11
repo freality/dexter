@@ -172,9 +172,27 @@ function secret(key) {
 }
 
 // packages/sdk/dist/synth.js
+var PLUGIN_SPEC_PATTERN = /^github\.com\/[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*(@[^@]+)?$/;
 function buildIR(config, resources) {
   if (typeof config.project !== "string" || config.project === "") {
     throw new DexError("INVALID_PROJECT", "invalid project name: must be a non-empty string");
+  }
+  var plugins = [];
+  if (config.plugins !== void 0) {
+    if (!Array.isArray(config.plugins)) {
+      throw new DexError("INVALID_PLUGIN_SPEC", "plugins must be an array of strings");
+    }
+    var seen = /* @__PURE__ */ new Set();
+    for (var i = 0; i < config.plugins.length; i++) {
+      var spec = config.plugins[i];
+      if (typeof spec !== "string" || !PLUGIN_SPEC_PATTERN.test(spec)) {
+        throw new DexError("INVALID_PLUGIN_SPEC", 'invalid plugin spec "' + spec + '": must match github.com/<owner>/<repo>[@tag]');
+      }
+      if (!seen.has(spec)) {
+        seen.add(spec);
+        plugins.push(spec);
+      }
+    }
   }
   const byName = new Map(resources.map((node) => [node.name, node]));
   const out = {};
@@ -195,7 +213,7 @@ function buildIR(config, resources) {
       depends_on: [...node.dependsOn]
     };
   }
-  return { project: config.project, resources: out };
+  return { project: config.project, plugins, resources: out };
 }
 function stableStringify(value) {
   return JSON.stringify(value, (_key, val) => val !== null && typeof val === "object" && !Array.isArray(val) ? Object.fromEntries(Object.keys(val).sort().map((k) => [k, val[k]])) : val);
