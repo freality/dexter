@@ -83,6 +83,21 @@ If a create or update fails (including a container that exits right after starti
 
 The adapter lives in its own Go workspace module, `adapters/docker`. `task check` covers it with fakes; `go test -tags docker ./adapters/docker/... ./cmd/dex/...` runs the adapter and the full `dex` CLI against a real daemon.
 
+### 5. Run a Command
+
+Day-two operations are TypeScript files anywhere `dex` discovers config (typically `dex/commands/`), registering with `defineCommand`:
+
+```typescript
+import { defineCommand } from "@dex/iac";
+
+defineCommand("backup", {
+  description: "Snapshot the database volume",
+  run: (ctx) => ctx.exec(["docker", "run", "--rm", "-v", "pg_data:/data", "postgres:15", "pg_dump", "-f", "/data/backup.sql"]),
+});
+```
+
+`dex run` with no arguments lists the registered commands; `dex run backup [args...]` runs one with no eval timeout (a command is interactive day-two ops, not bounded synthesis), cancelling on Ctrl-C and killing any exec'd child. Inside `run`, `ctx.args` carries the trailing CLI arguments, `ctx.env(key)` and `ctx.secret(key)` read `.env`/environment values (plaintext only via the deliberate `secret()` call — `ctx.resources` mirrors `.dex/state.json` with secret properties still hashed), and `ctx.exec(argv)` runs a host process with stdio attached and returns its exit code, which becomes `dex run`'s exit code.
+
 ## 🔐 Secrets
 
 Secrets are declared in resource properties with `secret("KEY")`; the engine resolved the value at apply time from your project's `.env` file (or the host environment, following the same lookup order as `env()`). The SDK emits a `{"$dex_type": "secret", "provider": "env", "key": "KEY"}` token, so **plaintext never enters the IR or `state.json`** — only that token and a keyed hash of the value.
@@ -110,7 +125,7 @@ my-laboratory/
 └── dex/
     ├── services/          # Auto-discovered infrastructure resources
     ├── plugins/           # Adapter configurations 
-    └── commands/          # Executable day-two operations (Coming Soon)
+    └── commands/          # Executable day-two operations (`defineCommand` + `dex run`)
 ```
 
 ## 📖 Documentation

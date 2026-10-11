@@ -31,7 +31,7 @@ This document outlines the phased development plan for `dex`. It serves as a che
     *   [ ] Plugin Distribution: Build the `dex plugin add` command to fetch binaries from GitHub Releases into `.dex/plugins/`.
 *   **Secrets & Commands**
     *   [ ] Secrets Management: Implement the `secret()` helper, `.env` parsing in Go, SHA-256 hashing for state, and late-binding injection into gRPC requests.
-    *   [ ] Custom Commands: Implement `defineCommand` in the SDK and the `dex run <cmd>` execution flow.
+    *   [x] Custom Commands: Implement `defineCommand` in the SDK and the `dex run <cmd>` execution flow.
 *   **Observability**
     *   [ ] Terminal UI (TUI): Integrate a framework (like Bubbletea) to render concurrent deployment progress bars via the internal Event Bus.
 
