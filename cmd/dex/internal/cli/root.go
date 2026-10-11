@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -38,7 +39,8 @@ func Main(args []string, in io.Reader, out, errOut io.Writer) int {
 // context that cancels on SIGINT/SIGTERM so adapter subprocesses get cleaned
 // up, then defer cleanup of all plugin clients.
 func mainWith(d deps, args []string, in io.Reader, out, errOut io.Writer) int {
-	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	defer CleanupClients()
 
 	root := newRootCmd(d)

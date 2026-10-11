@@ -136,9 +136,12 @@ A typical Dexter project looks like this:
 my-laboratory/
 ├── dex.config.ts          # Core engine setup and plugin configuration
 ├── .env                   # Local environment variables and secrets
+├── .dex/
+│   ├── state.json         # Tracked infrastructure state
+│   ├── secret.key         # Per-project key for hashing secret tokens (gitignored)
+│   └── plugins/           # Installed adapter binaries (dex plugin add/install)
 └── dex/
     ├── services/          # Auto-discovered infrastructure resources
-    ├── plugins/           # Adapter configurations 
     └── commands/          # Executable day-two operations (`defineCommand` + `dex run`)
 ```
 

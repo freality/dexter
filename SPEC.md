@@ -1,4 +1,5 @@
 # Dex Technical Specification
+
 This document defines the technical architecture, data contracts, and implementation rules for `dex`, a Homelab Infrastructure as Code (IaC) CLI. 
 
 Use this specification to guide code generation, system design, and component boundaries.
