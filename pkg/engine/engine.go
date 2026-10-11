@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 
 	"github.com/freality/dexter/pkg/engine/diff"
 	"github.com/freality/dexter/pkg/engine/ir"
@@ -28,7 +27,10 @@ type Options struct {
 	Lock     Locker
 	Registry *Registry
 	Env      map[string]string
-	Out      io.Writer // progress lines during Apply; nil => io.Discard
+	// Events receives progress events during Apply; nil discards them.
+	// It replaces the old Out writer (D11): a plain-line sink lives in the
+	// CLI, and the TUI feeds on the same stream (W4c).
+	Events func(Event)
 }
 
 // Engine drives Plan and Apply.
@@ -38,22 +40,25 @@ type Engine struct {
 	lock     Locker
 	registry *Registry
 	env      map[string]string
-	out      io.Writer
+	events   func(Event)
 }
 
 // New builds an Engine from Options.
 func New(o Options) *Engine {
-	out := o.Out
-	if out == nil {
-		out = io.Discard
-	}
 	return &Engine{
 		synth:    o.Synth,
 		store:    o.Store,
 		lock:     o.Lock,
 		registry: o.Registry,
 		env:      o.Env,
-		out:      out,
+		events:   o.Events,
+	}
+}
+
+// emit forwards one event to the Options.Events callback, if set.
+func (e *Engine) emit(ev Event) {
+	if e.events != nil {
+		e.events(ev)
 	}
 }
 
@@ -120,9 +125,12 @@ func (e *Engine) Apply(ctx context.Context, plan *diff.Plan) (_ *diff.Plan, err 
 	st.Project = plan.Project
 
 	for _, change := range plan.Changes {
+		e.emit(Event{Name: change.Name, Action: change.Action, Kind: EventStarted})
 		applyErr := e.applyChange(ctx, st, change, key)
 		if applyErr == nil {
-			fmt.Fprintf(e.out, "%s: done\n", change.Name)
+			e.emit(Event{Name: change.Name, Action: change.Action, Kind: EventDone})
+		} else {
+			e.emit(Event{Name: change.Name, Action: change.Action, Kind: EventFailed, Message: applyErr.Error()})
 		}
 		if saveErr := e.store.Save(st); saveErr != nil {
 			return nil, errors.Join(applyErr, fmt.Errorf("save state: %w", saveErr))
@@ -141,6 +149,14 @@ func (e *Engine) applyChange(ctx context.Context, st *state.State, change diff.C
 		return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
 	}
 
+	// report lets the adapter stream Log/Progress events; the engine fills
+	// in Name and Action so adapters never need to know them.
+	report := func(ev Event) {
+		ev.Name = change.Name
+		ev.Action = change.Action
+		e.emit(ev)
+	}
+
 	var outputs map[string]any
 	var resolvedDesired map[string]any
 	var resolvedCurrent map[string]any
@@ -153,7 +169,7 @@ func (e *Engine) applyChange(ctx context.Context, st *state.State, change diff.C
 		}
 		desiredCopy := *change.Desired
 		desiredCopy.Properties = resolvedDesired
-		outputs, err = adapter.Create(ctx, change.Name, desiredCopy)
+		outputs, err = adapter.Create(ctx, change.Name, desiredCopy, report)
 	case diff.ActionUpdate:
 		resolvedDesired, err = resolveSecrets(change.Desired.Properties, e.env, key)
 		if err != nil {
@@ -164,9 +180,9 @@ func (e *Engine) applyChange(ctx context.Context, st *state.State, change diff.C
 		desiredCopy.Properties = resolvedDesired
 		currentCopy := *change.Current
 		currentCopy.Properties = resolvedCurrent
-		outputs, err = adapter.Update(ctx, change.Name, desiredCopy, currentCopy)
+		outputs, err = adapter.Update(ctx, change.Name, desiredCopy, currentCopy, report)
 	case diff.ActionDelete:
-		if err = adapter.Delete(ctx, change.Name, *change.Current); err != nil {
+		if err = adapter.Delete(ctx, change.Name, *change.Current, report); err != nil {
 			return fmt.Errorf("%s %s: %w", change.Action, change.Name, err)
 		}
 		delete(st.Resources, change.Name)

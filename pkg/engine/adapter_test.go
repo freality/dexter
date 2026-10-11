@@ -10,13 +10,13 @@ import (
 
 type stubAdapter struct{}
 
-func (stubAdapter) Create(context.Context, string, ir.Resource) (map[string]any, error) {
+func (stubAdapter) Create(context.Context, string, ir.Resource, func(Event)) (map[string]any, error) {
 	return nil, nil
 }
-func (stubAdapter) Update(context.Context, string, ir.Resource, state.Resource) (map[string]any, error) {
+func (stubAdapter) Update(context.Context, string, ir.Resource, state.Resource, func(Event)) (map[string]any, error) {
 	return nil, nil
 }
-func (stubAdapter) Delete(context.Context, string, state.Resource) error { return nil }
+func (stubAdapter) Delete(context.Context, string, state.Resource, func(Event)) error { return nil }
 
 func TestRegistryGetMiss(t *testing.T) {
 	r := NewRegistry()

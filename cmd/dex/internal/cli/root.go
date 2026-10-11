@@ -83,8 +83,21 @@ func newProductionEngine(dir string) (*engine.Engine, error) {
 		Lock:     state.NewLock(dir),
 		Registry: registryFor(dock),
 		Env:      env,
-		Out:      os.Stdout,
+		Events:   applySink(os.Stdout),
 	}), nil
+}
+
+// applySink is the default Events sink: it prints today's "<name>: done"
+// progress lines to w, so `dex apply` output is unchanged (W4a). Replace it
+// with an engine option for other consumers (the TUI in W4c feeds on the
+// same stream). Failure output stays unchanged too: Apply still returns the
+// error and Main prints it.
+func applySink(w io.Writer) func(engine.Event) {
+	return func(ev engine.Event) {
+		if ev.Kind == engine.EventDone {
+			fmt.Fprintf(w, "%s: done\n", ev.Name)
+		}
+	}
 }
 
 func envMap() map[string]string {
