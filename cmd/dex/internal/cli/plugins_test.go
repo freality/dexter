@@ -2,6 +2,11 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/freality/dexter/pkg/engine"
@@ -135,4 +140,126 @@ func (a *captureAdapter) Destroy(_ context.Context, req plugin.Request, _ plugin
 		return a.destroy(req)
 	}
 	return nil
+}
+
+// --- resolvePlugin / openAdapter --------------------------------------------
+
+// writeExecutable creates an executable regular file at path (any content;
+// it is never actually run, only looked up and "opened" via the pluginOpen
+// seam).
+func writeExecutable(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// withPluginOpen swaps the pluginOpen seam for the test's duration.
+func withPluginOpen(t *testing.T, fn func(path string, logOut io.Writer) (plugin.Adapter, func(), error)) {
+	t.Helper()
+	original := pluginOpen
+	pluginOpen = fn
+	t.Cleanup(func() { pluginOpen = original })
+}
+
+// TestResolvePluginNotInstalled verifies the "not installed" error when the
+// binary is in neither the project-local dir nor PATH.
+func TestResolvePluginNotInstalled(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	_, err := resolvePlugin(t.TempDir())("docker")
+	if err == nil || err.Error() != `plugin "docker" not installed (run: dex plugin install)` {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestResolvePluginLocal verifies the project-local .dex/plugins lookup
+// (D7's first path) opens via openAdapter.
+func TestResolvePluginLocal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("exec bit not meaningful on windows")
+	}
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, ".dex", "plugins", "dex-adapter-docker"))
+	t.Setenv("PATH", t.TempDir()) // PATH has nothing, so only local resolves
+
+	var gotPath string
+	withPluginOpen(t, func(path string, _ io.Writer) (plugin.Adapter, func(), error) {
+		gotPath = path
+		return &captureAdapter{}, func() {}, nil
+	})
+
+	adapter, err := resolvePlugin(dir)("docker")
+	if err != nil {
+		t.Fatalf("resolvePlugin: %v", err)
+	}
+	if adapter == nil {
+		t.Fatal("adapter is nil")
+	}
+	want := filepath.Join(dir, ".dex", "plugins", "dex-adapter-docker")
+	if gotPath != want {
+		t.Fatalf("opened path = %q, want %q", gotPath, want)
+	}
+}
+
+// TestResolvePluginPATH verifies the PATH fallback (D7's second path) when
+// no project-local binary exists.
+func TestResolvePluginPATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("exec bit not meaningful on windows")
+	}
+	pathDir := t.TempDir()
+	writeExecutable(t, filepath.Join(pathDir, "dex-adapter-docker"))
+	t.Setenv("PATH", pathDir)
+
+	withPluginOpen(t, func(path string, _ io.Writer) (plugin.Adapter, func(), error) {
+		return &captureAdapter{}, func() {}, nil
+	})
+
+	_, err := resolvePlugin(t.TempDir())("docker") // empty project dir: no local binary
+	if err != nil {
+		t.Fatalf("resolvePlugin: %v", err)
+	}
+}
+
+// TestOpenAdapterError verifies a pluginOpen failure propagates and does not
+// track a kill func.
+func TestOpenAdapterError(t *testing.T) {
+	withPluginOpen(t, func(_ string, _ io.Writer) (plugin.Adapter, func(), error) {
+		return nil, nil, errors.New("boom")
+	})
+	before := len(killFuncs)
+	_, err := openAdapter("/does/not/matter", "docker")
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("err = %v", err)
+	}
+	if len(killFuncs) != before {
+		t.Fatalf("killFuncs grew on error: %d -> %d", before, len(killFuncs))
+	}
+}
+
+// TestOpenAdapterSuccess verifies a successful pluginOpen tracks its kill
+// func and wraps the adapter in a pluginBridge.
+func TestOpenAdapterSuccess(t *testing.T) {
+	killed := false
+	withPluginOpen(t, func(_ string, _ io.Writer) (plugin.Adapter, func(), error) {
+		return &captureAdapter{}, func() { killed = true }, nil
+	})
+	before := len(killFuncs)
+	adapter, err := openAdapter("/does/not/matter", "docker")
+	if err != nil {
+		t.Fatalf("openAdapter: %v", err)
+	}
+	if _, ok := adapter.(*pluginBridge); !ok {
+		t.Fatalf("adapter = %T, want *pluginBridge", adapter)
+	}
+	if len(killFuncs) != before+1 {
+		t.Fatalf("killFuncs did not grow: %d -> %d", before, len(killFuncs))
+	}
+	CleanupClients()
+	if !killed {
+		t.Fatal("kill func was not called by CleanupClients")
+	}
 }
