@@ -97,7 +97,11 @@ func runPluginInstall(dir string, d deps, w io.Writer) error {
 // synthesizeDoc runs the engine's synthesizer and returns the parsed IR doc.
 func synthesizeDoc(e *engine.Engine, dir string) (*ir.Document, error) {
 	synth := jsenv.NewSynthesizer(jsenv.NewEsbuildBundler(), jsenv.NewGojaEvaluator())
-	env := envMap()
+	env, err := loadEnv(dir)
+	if err != nil {
+		return nil, err
+	}
+	mergeProcessEnv(env)
 	data, err := synth.Synth(context.Background(), dir, env)
 	if err != nil {
 		return nil, fmt.Errorf("synthesize: %w", err)

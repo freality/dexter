@@ -67,6 +67,27 @@ func TestDiscover(t *testing.T) {
 			want: []string{"dex.config.ts", "dex/services/a.ts"},
 		},
 		{
+			name: "commands dir discovered alongside services",
+			files: map[string]string{
+				"dex.config.ts":               "export {};",
+				"dex/services/a.ts":           "export {};",
+				"dex/commands/backup.ts":      "export {};",
+				"dex/commands/nested/deep.ts": "export {};",
+			},
+			want: []string{"dex.config.ts", "dex/commands/backup.ts", "dex/commands/nested/deep.ts", "dex/services/a.ts"},
+		},
+		{
+			name: "commands d.ts and dot-dirs skipped",
+			files: map[string]string{
+				"dex.config.ts":                    "export {};",
+				"dex/commands/backup.ts":           "export {};",
+				"dex/commands/types.d.ts":          "export type Cmd = string;",
+				"dex/commands/.git/hook.ts":        "export {};",
+				"dex/commands/nested/.hidden/x.ts": "export {};",
+			},
+			want: []string{"dex.config.ts", "dex/commands/backup.ts"},
+		},
+		{
 			name: "dot-prefixed directories skipped",
 			files: map[string]string{
 				"dex.config.ts":              "export {};",
@@ -223,6 +244,20 @@ defineDexConfig({ project: "p" });`,
 		}
 	})
 
+	t.Run("commands dir bundles and stays out of synth output", func(t *testing.T) {
+		dir := t.TempDir()
+		writeProject(t, dir, map[string]string{
+			"dex.config.ts": `import { defineDexConfig } from "@dex/iac";
+defineDexConfig({ project: "p" });`,
+			"dex/commands/hello.ts": `import { defineCommand } from "@dex/iac";
+defineCommand("hello", { description: "Say hello", run: () => 0 });`,
+		})
+		// The command registers into its own registry; the IR is unchanged.
+		got := synthResources(t, dir)
+		if len(got) != 0 {
+			t.Fatalf("resources = %v, want none (commands must not touch synth output)", got)
+		}
+	})
 	t.Run("duplicate resource across files", func(t *testing.T) {
 		dir := t.TempDir()
 		writeProject(t, dir, map[string]string{

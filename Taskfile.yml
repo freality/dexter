@@ -38,6 +38,9 @@ tasks:
     desc: Run Go tests with the 100% coverage gate
     cmds:
       - go test $(go list -m | sed 's,$,/...,') -covermode=count -coverprofile=coverage.out
+      # W4b: Apply now schedules changes concurrently, so the engine must
+      # also pass under the race detector.
+      - go test -race ./pkg/engine/...
       - ./scripts/check-coverage.sh coverage.out
 
   test:ts:

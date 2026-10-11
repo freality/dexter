@@ -1,4 +1,5 @@
 export type DexErrorCode =
+  | "DUPLICATE_COMMAND"
   | "DUPLICATE_CONFIG"
   | "DUPLICATE_RESOURCE"
   | "INVALID_DEPENDENCY"
