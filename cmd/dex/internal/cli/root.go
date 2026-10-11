@@ -96,7 +96,7 @@ func newProductionEngine(dir string) (*engine.Engine, error) {
 		Synth:    synth,
 		Store:    state.NewFileStore(dir, time.Now),
 		Lock:     state.NewLock(dir),
-		Registry: engine.NewRegistry(resolvePlugin(dir, []string{})),
+		Registry: engine.NewRegistry(resolvePlugin(dir)),
 		Env:      env,
 		Events:   applySink(os.Stdout),
 	}), nil

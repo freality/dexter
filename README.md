@@ -83,6 +83,20 @@ If a create or update fails (including a container that exits right after starti
 
 The adapter lives in its own Go workspace module, `adapters/docker`. `task check` covers it with fakes; `go test -tags docker ./adapters/docker/... ./cmd/dex/...` runs the adapter and the full `dex` CLI against a real daemon.
 
+### Installing plugin adapters
+
+Adapters (including Docker's) ship as separate `dex-adapter-<name>` binaries, downloaded from GitHub releases rather than built into `dex`. A fresh `dex init` scaffold already declares one:
+
+```typescript
+defineDexConfig({ project: "homelab", plugins: ["github.com/freality/dexter@v1.0.0"] });
+```
+
+Run `dex plugin install` with no arguments to install everything declared in `dex.config.ts` — this is what makes a fresh clone usable with one command. `dex plugin add github.com/<owner>/<repo>[@tag]` installs a single adapter ad hoc, outside the declared set. Every install fetches release metadata from GitHub (pinned or not) and verifies the downloaded binary against the release's `checksums.txt` before it's made executable; re-running either command when a binary is already up to date skips the download, but still makes that one metadata/checksum request.
+
+An entry without `@tag` resolves to whatever release is currently tagged `latest`, so it can point at a different binary on a later `dex plugin install` run; pin `@vX.Y.Z` for a reproducible project. Set `GITHUB_TOKEN` if you run `dex plugin install`/`add` repeatedly (a CI pipeline, for example) to avoid GitHub's unauthenticated rate limit.
+
+**Trust model:** a plugin binary runs with your full user privileges, the same as any other program you install. The checksum check only proves the binary matches what the release published — it says nothing about whether that release should be trusted. Install adapters only from repos you trust, the same way you'd vet any other software. Signature verification (e.g. cosign/minisign) is a planned upgrade, not yet implemented.
+
 ### 5. Run a Command
 
 Day-two operations are TypeScript files anywhere `dex` discovers config (typically `dex/commands/`), registering with `defineCommand`:

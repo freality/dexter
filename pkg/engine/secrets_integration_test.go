@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 
@@ -264,6 +265,59 @@ func TestEngineApplyLeakGuard(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "leaks secret") {
 		t.Fatalf("Apply() error = %v, want leak guard error", err)
+	}
+}
+
+// TestEngineApplyLeakGuardOnAdapterError verifies the leak guard also fires
+// when the adapter returns a partial outputs map alongside an error (the
+// common "created it, then the follow-up step failed" shape): the leaked
+// value must not reach the tainted state entry persisted for the attempt.
+func TestEngineApplyLeakGuardOnAdapterError(t *testing.T) {
+	doc := &ir.Document{Project: "p", Resources: map[string]ir.Resource{
+		"svc": {Type: "container", Plugin: "docker", Properties: map[string]any{
+			"image": "img",
+			"env": map[string]any{
+				"PASSWORD": map[string]any{"$dex_type": "secret", "provider": "env", "key": "DB_PWD"},
+			},
+		}},
+	}}
+
+	adapter := adapterFunc{
+		create: func(_ context.Context, _ string, _ ir.Resource, _ func(Event)) (map[string]any, error) {
+			return map[string]any{"id": "contains-supersecret-value"}, errors.New("boom")
+		},
+	}
+	registry := NewRegistry(resolveOne("docker", adapter))
+
+	store := &fakeStore{st: state.New()}
+	e := New(Options{
+		Synth:    fakeSynth(t, doc),
+		Store:    store,
+		Lock:     &fakeLocker{},
+		Registry: registry,
+		Env:      map[string]string{"DB_PWD": "supersecret"},
+	})
+
+	plan, err := e.Plan(context.Background(), entryDir)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	_, err = e.Apply(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "leaks secret") {
+		t.Fatalf("Apply() error = %v, want it to mention the leak guard", err)
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("Apply() error = %v, want the adapter's own error preserved too", err)
+	}
+
+	saved := store.st.Resources["svc"]
+	if !saved.Tainted {
+		t.Fatal("svc should be persisted tainted after a failed create")
+	}
+	for _, v := range saved.Outputs {
+		if s, ok := v.(string); ok && strings.Contains(s, "supersecret") {
+			t.Fatalf("state.json carries the leaked plaintext: outputs = %+v", saved.Outputs)
+		}
 	}
 }
 

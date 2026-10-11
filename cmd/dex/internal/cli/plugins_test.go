@@ -170,7 +170,7 @@ func withPluginOpen(t *testing.T, fn func(path string, logOut io.Writer) (plugin
 func TestResolvePluginNotInstalled(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	// With no declared specs, the message suggests adding a repo.
-	_, err := resolvePlugin(t.TempDir(), []string{})("docker")
+	_, err := resolvePlugin(t.TempDir())("docker")
 	if err == nil || err.Error() != `plugin "docker" not installed (run: dex plugin add <repo>)` {
 		t.Fatalf("err = %v", err)
 	}
@@ -180,7 +180,10 @@ func TestResolvePluginNotInstalled(t *testing.T) {
 // declared (non-empty IR.Plugins), the message suggests install.
 func TestResolvePluginNotInstalledDeclared(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	_, err := resolvePlugin(t.TempDir(), []string{"github.com/freality/dexter@v1.0.0"})("docker")
+	dir := writeProject(t, `import { defineDexConfig } from "@dex/iac";
+defineDexConfig({ project: "p", plugins: ["github.com/freality/dexter@v1.0.0"] });
+`)
+	_, err := resolvePlugin(dir)("docker")
 	if err == nil || err.Error() != `plugin "docker" not installed (run: dex plugin install)` {
 		t.Fatalf("err = %v", err)
 	}
@@ -202,7 +205,7 @@ func TestResolvePluginLocal(t *testing.T) {
 		return &captureAdapter{}, func() {}, nil
 	})
 
-	adapter, err := resolvePlugin(dir, []string{})("docker")
+	adapter, err := resolvePlugin(dir)("docker")
 	if err != nil {
 		t.Fatalf("resolvePlugin: %v", err)
 	}
@@ -229,7 +232,7 @@ func TestResolvePluginPATH(t *testing.T) {
 		return &captureAdapter{}, func() {}, nil
 	})
 
-	_, err := resolvePlugin(t.TempDir(), []string{})("docker") // empty project dir: no local binary
+	_, err := resolvePlugin(t.TempDir())("docker") // empty project dir: no local binary
 	if err != nil {
 		t.Fatalf("resolvePlugin: %v", err)
 	}

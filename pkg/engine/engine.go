@@ -398,10 +398,19 @@ func (e *Engine) applyChange(ctx context.Context, change diff.Change, key []byte
 	}
 
 	// Leak guard: check that adapter outputs don't contain any resolved secret values.
-	if err == nil && outputs != nil {
+	// Runs even when the adapter call itself already failed: a partial
+	// outputs map returned alongside an error must not carry a leaked
+	// secret into the tainted state entry below.
+	if outputs != nil {
 		resolvedAll := collectSecrets(change.Desired.Properties, e.env)
 		if le := checkLeak(outputs, resolvedAll); le != nil {
-			return nil, fmt.Errorf("%s %s: %w", change.Action, change.Name, le)
+			if err == nil {
+				return nil, fmt.Errorf("%s %s: %w", change.Action, change.Name, le)
+			}
+			// Already failing: drop the leaked outputs rather than persist
+			// them, and fold the leak into the reported error.
+			outputs = nil
+			err = errors.Join(err, le)
 		}
 	}
 

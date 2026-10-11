@@ -51,13 +51,18 @@ var pluginOpen = plugin.Open
 
 // --- resolvePlugin --------------------------------------------------------
 
-// resolvePlugin returns a resolve func for engine.NewRegistry. declaredSpecs
-// comes from IR.Plugins and controls the missing-binary error message per D7:
-// when specs are declared, suggest "dex plugin install"; otherwise suggest
-// "dex plugin add <repo>". Lookup order:
+// resolvePlugin returns a resolve func for engine.NewRegistry. Lookup order:
 //
 //	<dir>/.dex/plugins/dex-adapter-<name>  then  exec.LookPath("dex-adapter-<name>")
-func resolvePlugin(dir string, declaredSpecs []string) func(plugin string) (engine.Adapter, error) {
+//
+// A missing binary's error message follows D7: if the project declares any
+// plugin specs (IR.Plugins, read lazily here since Registry resolves lazily
+// and the caller may not have synthesized yet), suggest "dex plugin install";
+// otherwise suggest "dex plugin add <repo>". There's no way to know which
+// adapter names a given repo spec provides without fetching its release (and
+// resolve must never make a network call), so "any spec declared" is the
+// best available signal, not true membership.
+func resolvePlugin(dir string) func(plugin string) (engine.Adapter, error) {
 	return func(plugin string) (engine.Adapter, error) {
 		// Try the project-local plugins directory first.
 		localPath := filepath.Join(dir, ".dex", "plugins", "dex-adapter-"+plugin)
@@ -75,11 +80,19 @@ func resolvePlugin(dir string, declaredSpecs []string) func(plugin string) (engi
 
 		// Per D7: if the project has declared plugin specs, suggest install;
 		// otherwise suggest adding a repo.
-		if len(declaredSpecs) > 0 {
+		if hasDeclaredPlugins(dir) {
 			return nil, fmt.Errorf("plugin %q not installed (run: dex plugin install)", plugin)
 		}
 		return nil, fmt.Errorf("plugin %q not installed (run: dex plugin add <repo>)", plugin)
 	}
+}
+
+// hasDeclaredPlugins reports whether dir's dex.config.ts declares any
+// plugins. A synthesis failure (e.g. a broken project) is treated as no
+// declared plugins; the missing-binary error is reported either way.
+func hasDeclaredPlugins(dir string) bool {
+	doc, err := synthesizeDoc(nil, dir)
+	return err == nil && len(doc.Plugins) > 0
 }
 
 func openAdapter(path, pluginName string) (engine.Adapter, error) {
