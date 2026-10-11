@@ -19,6 +19,10 @@ var NamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 // alphanumeric and hyphens are allowed. No dots or underscores.
 var PluginNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// PluginSpecPattern validates plugin spec strings like
+// github.com/<owner>/<repo>[@tag]. Matches the SDK's PLUGIN_SPEC_PATTERN.
+var PluginSpecPattern = regexp.MustCompile(`^github\.com/[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._-]*(@[^@]+)?$`)
+
 // Resource is one node in the IR, keyed by name in Document.Resources.
 type Resource struct {
 	Type       string         `json:"type"`
@@ -30,6 +34,7 @@ type Resource struct {
 // Document is the full synthesized IR for a project.
 type Document struct {
 	Project   string              `json:"project"`
+	Plugins   []string            `json:"plugins"`
 	Resources map[string]Resource `json:"resources"`
 }
 
@@ -111,6 +116,18 @@ func (d *Document) Validate() error {
 	if d.Project == "" {
 		return &ValidationError{Field: "project", Reason: "must not be empty"}
 	}
+	if d.Plugins == nil {
+		d.Plugins = []string{}
+	}
+	for i, spec := range d.Plugins {
+		if !PluginSpecPattern.MatchString(spec) {
+			return &ValidationError{
+				Field:  fmt.Sprintf("plugins[%d]", i),
+				Reason: fmt.Sprintf("invalid plugin spec %q: must match github.com/<owner>/<repo>[@tag]", spec),
+			}
+		}
+	}
+
 	if d.Resources == nil {
 		d.Resources = map[string]Resource{}
 	}

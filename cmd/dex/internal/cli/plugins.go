@@ -51,14 +51,14 @@ var pluginOpen = plugin.Open
 
 // --- resolvePlugin --------------------------------------------------------
 
-// resolvePlugin returns a resolve func for engine.NewRegistry that looks up
-// adapter binaries. Lookup order per D7:
+// resolvePlugin returns a resolve func for engine.NewRegistry. declaredSpecs
+// comes from IR.Plugins and controls the missing-binary error message per D7:
+// when specs are declared, suggest "dex plugin install"; otherwise suggest
+// "dex plugin add <repo>". Lookup order:
 //
 //	<dir>/.dex/plugins/dex-adapter-<name>  then  exec.LookPath("dex-adapter-<name>")
 //
-// A missing binary produces a "not installed" error. Plan never calls
-// resolve — only Apply does — so these filesystem checks never block dex plan.
-func resolvePlugin(dir string) func(plugin string) (engine.Adapter, error) {
+func resolvePlugin(dir string, declaredSpecs []string) func(plugin string) (engine.Adapter, error) {
 	return func(plugin string) (engine.Adapter, error) {
 		// Try the project-local plugins directory first.
 		localPath := filepath.Join(dir, ".dex", "plugins", "dex-adapter-"+plugin)
@@ -74,7 +74,12 @@ func resolvePlugin(dir string) func(plugin string) (engine.Adapter, error) {
 			return openAdapter(path, plugin)
 		}
 
-		return nil, fmt.Errorf("plugin %q not installed (run: dex plugin install)", plugin)
+		// Per D7: if the project has declared plugin specs, suggest install;
+		// otherwise suggest adding a repo.
+		if len(declaredSpecs) > 0 {
+			return nil, fmt.Errorf("plugin %q not installed (run: dex plugin install)", plugin)
+		}
+		return nil, fmt.Errorf("plugin %q not installed (run: dex plugin add <repo>)", plugin)
 	}
 }
 

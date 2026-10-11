@@ -3,7 +3,7 @@ import { defineDexConfig, env, service, synth, SYNTH_GLOBAL } from "./index.js";
 import { stableStringify } from "./synth.js";
 
 const EXPECTED =
-  '{"project":"my-homelab","resources":{"api":{"depends_on":["postgres"],"plugin":"docker","properties":{"image":"nginx:1.27"},"type":"container"},"postgres":{"depends_on":[],"plugin":"docker","properties":{"image":"postgres:15"},"type":"container"}}}';
+  '{"plugins":[],"project":"my-homelab","resources":{"api":{"depends_on":["postgres"],"plugin":"docker","properties":{"image":"nginx:1.27"},"type":"container"},"postgres":{"depends_on":[],"plugin":"docker","properties":{"image":"postgres:15"},"type":"container"}}}';
 
 const g = globalThis as unknown as Record<string, unknown>;
 
