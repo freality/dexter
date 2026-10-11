@@ -70,6 +70,7 @@ func newRootCmd(d deps) *cobra.Command {
 	root.AddCommand(newInitCmd(&dir))
 	root.AddCommand(newPlanCmd(&dir, d))
 	root.AddCommand(newApplyCmd(&dir, d))
+	root.AddCommand(newPluginCmd(&dir, d))
 	root.AddCommand(newRunCmd(&dir, d))
 	return root
 }
@@ -95,7 +96,7 @@ func newProductionEngine(dir string) (*engine.Engine, error) {
 		Synth:    synth,
 		Store:    state.NewFileStore(dir, time.Now),
 		Lock:     state.NewLock(dir),
-		Registry: engine.NewRegistry(resolvePlugin(dir)),
+		Registry: engine.NewRegistry(resolvePlugin(dir, []string{})),
 		Env:      env,
 		Events:   applySink(os.Stdout),
 	}), nil

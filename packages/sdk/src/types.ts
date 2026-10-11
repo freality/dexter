@@ -11,11 +11,13 @@ export interface ResourceIR {
 
 export interface DexIR {
   project: string;
+  plugins: string[];
   resources: Record<string, ResourceIR>;
 }
 
 export interface DexConfig {
   project: string;
+  plugins?: string[];
 }
 
 export interface ResourceNode {
