@@ -31,3 +31,7 @@ _Avoid_: secret ref, credential
 **Command**:
 A day-two operation registered with `defineCommand()` and invoked with `dex run <name>`; runs outside the resource DAG, with host privileges, and reaches resource state only through its `ctx` (hashed properties by default; `ctx.secret()` for a deliberate plaintext read).
 _Avoid_: task, script
+
+**Daemon**:
+The long-running `dex` process on the homelab host that owns planning and applying and serves clients (the CLI, `dex dash`, the web GUI, MCP assistants), which may connect from elsewhere on the LAN. "Control plane" describes the product, not this component.
+_Avoid_: server, agent, controller
