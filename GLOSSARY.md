@@ -33,5 +33,5 @@ A day-two operation registered with `defineCommand()` and invoked with `dex run 
 _Avoid_: task, script
 
 **Daemon**:
-The long-running `dex` process on the homelab host that owns planning and applying and serves clients (the CLI, `dex dash`, the web GUI, MCP assistants), which may connect from elsewhere on the LAN. "Control plane" describes the product, not this component.
+The `dex` process on the homelab host that owns planning and applying and serves clients (the CLI, `dex dash`, the web GUI, MCP assistants), which may connect from elsewhere on the LAN. Runs **ephemeral** (spawned by a bare `dex plan`/`dex apply`, exits once idle) or **persistent** (`dex daemon`, run explicitly or under a supervisor, stays up until stopped) — same process, different lifetime; "Control plane" describes the product, not this component.
 _Avoid_: server, agent, controller
