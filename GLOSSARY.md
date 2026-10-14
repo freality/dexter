@@ -29,7 +29,7 @@ A property value declared with `secret()` that is resolved from `.env` at apply 
 _Avoid_: secret ref, credential
 
 **Command**:
-A day-two operation registered with `defineCommand()` and invoked with `dex run <name>`; runs outside the resource DAG, with host privileges, and reaches resource state only through its `ctx` (hashed properties by default; `ctx.secret()` for a deliberate plaintext read).
+A day-two operation registered with `defineCommand()` and invoked with `dex run <name>`; runs outside the resource DAG, with the Daemon's host privileges (not the invoking CLI's — a Command executes wherever the Daemon it routes through does), and reaches resource state only through its `ctx` (hashed properties by default; `ctx.secret()` for a deliberate plaintext read).
 _Avoid_: task, script
 
 **Daemon**:
